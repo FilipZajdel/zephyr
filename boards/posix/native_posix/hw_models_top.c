@@ -19,6 +19,7 @@
 #include "irq_ctrl.h"
 #include "posix_board_if.h"
 #include "hw_counter.h"
+#include "bs_radio.h"
 #include <arch/posix/posix_soc_if.h>
 #include "posix_arch_internal.h"
 #include "sdl_events.h"
@@ -32,6 +33,7 @@ static uint64_t end_of_time = NEVER; /* When will this device stop */
 extern uint64_t hw_timer_timer; /* When should this timer_model be called */
 extern uint64_t irq_ctrl_timer;
 extern uint64_t hw_counter_timer;
+extern uint64_t bs_radio_timer;
 #ifdef CONFIG_HAS_SDL
 extern uint64_t sdl_event_timer;
 #endif
@@ -203,6 +205,7 @@ void hwm_init(void)
 	hwtimer_init();
 	hw_counter_init();
 	hw_irq_ctrl_init();
+	bs_radio_init();
 
 	hwm_find_next_timer();
 }

@@ -1,5 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
+if (NOT DEFINED ENV{BSIM_COMPONENTS_PATH})
+    message(FATAL_ERROR "This board requires the BabbleSim simulator. Please set\
+ the  environment variable BSIM_COMPONENTS_PATH to point to its components \
+ folder. More information can be found in\
+ https://babblesim.github.io/folder_structure_and_env.html")
+endif()
+
+if (NOT DEFINED ENV{BSIM_OUT_PATH})
+    message(FATAL_ERROR "This board requires the BabbleSim simulator. Please set\
+ the environment variable BSIM_OUT_PATH to point to the folder where the\
+ simulator is compiled to. More information can be found in\
+ https://babblesim.github.io/folder_structure_and_env.html")
+endif()
+
 zephyr_library()
 
 zephyr_library_compile_definitions(NO_POSIX_CHEATS)
@@ -15,12 +29,17 @@ zephyr_library_sources(
 	cmdline_common.c
 	cmdline.c
 	hw_counter.c
+	bs_radio.c
 	)
 
 zephyr_library_include_directories(
+  $ENV{BSIM_COMPONENTS_PATH}/libUtilv1/src/
+  $ENV{BSIM_COMPONENTS_PATH}/libPhyComv1/src/
+  $ENV{BSIM_COMPONENTS_PATH}/libRandv2/src/
+  $ENV{BSIM_COMPONENTS_PATH}/ext_2G4_libPhyComv1/src/
   ${ZEPHYR_BASE}/kernel/include
   ${ZEPHYR_BASE}/arch/posix/include
-  )
+)
 
 if(CONFIG_HAS_SDL)
 	find_package(PkgConfig REQUIRED)
@@ -34,6 +53,12 @@ endif()
 zephyr_ld_options(
   -lm
 )
+
+set(libpath $ENV{BSIM_OUT_PATH}/lib)
+zephyr_library_import(bsim_libUtilv1	${libpath}/libUtilv1.32.a)
+zephyr_library_import(bsim_libPhyComv1    ${libpath}/libPhyComv1.32.a)
+zephyr_library_import(bsim_lib2G4PhyComv1 ${libpath}/lib2G4PhyComv1.32.a)
+zephyr_library_import(bsim_libRandv2      ${libpath}/libRandv2.32.a)
 
 # Override the C standard used for compilation to C 2011
 # This is due to some tests using _Static_assert which is a 2011 feature, but
