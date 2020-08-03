@@ -15,6 +15,28 @@
 #define NRF5_PHR_LENGTH   (1)
 #define NRF_802154_RX_BUFFERS (20) /* TODO: resolve */
 
+typedef struct __attribute__((packed)) {
+	uint8_t frame_control[2];
+	uint8_t seq_no;
+	struct __attribute__((packed)) {
+		uint8_t dest_pan_ID[2];
+		uint8_t dest_addr[8];
+		uint8_t src_pan_ID[2];
+		uint8_t src_addr[8];
+	} address;
+
+	uint8_t payload[102];
+	uint8_t fcs[2];
+} ieee802154_mac_frame_t;
+
+typedef struct __attribute__((packed)) {
+	uint8_t preamble[4];
+	uint8_t sfd;
+	uint8_t lof;
+	ieee802154_mac_frame_t payload;
+} ieee802154_phy_frame_t;
+
+
 struct nrf5_802154_rx_frame {
 	void *fifo_reserved; /* 1st word reserved for use by fifo. */
 	uint8_t *psdu; /* Pointer to a received frame. */

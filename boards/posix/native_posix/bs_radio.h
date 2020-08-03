@@ -43,29 +43,33 @@ enum bs_radio_event_types {
 	BS_RADIO_EVENT_ENERGY_FAILED
 };
 
-typedef void (*bs_radio_event_cb_t)(enum bs_radio_event_types, void *);
+struct bs_radio_event_data {
+	enum bs_radio_event_types type;
+	union {
+		struct {
+			uint16_t len;
+			uint8_t *data;
+		} rx_done;
 
-union bs_radio_event_data {
-	struct {
-                uint16_t len;
-		uint8_t *data;
-	} rx_done;
-
-	struct {
-		uint16_t rssi;
-	} energy_done;
+		struct {
+			uint16_t rssi;
+		} energy_done;
+	};
 };
+
+typedef void (*bs_radio_event_cb_t)(struct bs_radio_event_data *);
 
 /* HW Models API */
 void bs_radio_init(void);
 void bs_radio_triggered(void);
+void bs_radio_deinit(void);
+
 
 /* User API */
 void bs_radio_start(bs_radio_event_cb_t event_cb);
 void bs_radio_stop();
 
 int bs_radio_tx(uint8_t *data, uint16_t data_len, bool cca);
-int bs_radio_rx(void);
 int bs_radio_rssi(void);
 
 int bs_radio_channel_set(uint16_t channel);

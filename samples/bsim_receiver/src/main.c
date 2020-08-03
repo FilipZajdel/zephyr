@@ -16,7 +16,7 @@
 #define TEST_TX_BUF_SIZE (50)
 
 static uint8_t tx_buf[TEST_TX_BUF_SIZE];
-static uint8_t tx_ctr;
+uint8_t rx_ctr;
 
 
 void radio_event_cb(struct bs_radio_event_data *event_data)
@@ -24,7 +24,6 @@ void radio_event_cb(struct bs_radio_event_data *event_data)
 	switch (event_data->type) {
 	case BS_RADIO_EVENT_TX_DONE:
 		printk("APP >>> App data has been sent\n");
-                tx_ctr++;
 		break;
 	case BS_RADIO_EVENT_RX_DONE:
 		printk("APP >>> Received %d bytes.\n",
@@ -32,6 +31,7 @@ void radio_event_cb(struct bs_radio_event_data *event_data)
                 for (int i=0; i<event_data->rx_done.len; i++) {
                         printk("%d\t", event_data->rx_done.data[i]);
                 }
+		rx_ctr++;
 		break;
 	default:
 		printk("%u Radio event is not supported\n", event_data->type);
@@ -43,23 +43,14 @@ static void sleep_ms_rand(uint32_t min, uint32_t max);
 
 void main(void)
 {
-        srand(time(NULL));
+	srand(time(NULL));
 	fill_buffer(tx_buf, TEST_TX_BUF_SIZE);
 	bs_radio_start(radio_event_cb);
 
-	sleep_ms_rand(250, 1000);
-        // bs_radio_tx(tx_buf, TEST_TX_BUF_SIZE, false);
-
-	while (tx_ctr < 20) {
-                k_msleep(1500);
-                bs_radio_tx(tx_buf, TEST_TX_BUF_SIZE, false);     
-	}
-        // for (int i=0; i<10; i++) {
-        //         k_msleep(500);
-        // }
+	while(rx_ctr < 5) k_msleep(1500);
 
 	bs_radio_stop();
-        bs_radio_deinit();
+	bs_radio_deinit();
 }
 
 void sleep_ms_rand(uint32_t min, uint32_t max)
