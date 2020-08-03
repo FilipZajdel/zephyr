@@ -42,6 +42,7 @@ static enum {
 	HWTIMER = 0,
 	IRQCNT,
 	HW_COUNTER,
+	BS_RADIO,
 #ifdef CONFIG_HAS_SDL
 	SDLEVENTTIMER,
 #endif
@@ -53,6 +54,7 @@ static uint64_t *Timer_list[NUMBER_OF_TIMERS] = {
 	&hw_timer_timer,
 	&irq_ctrl_timer,
 	&hw_counter_timer,
+	&bs_radio_timer,
 #ifdef CONFIG_HAS_SDL
 	&sdl_event_timer,
 #endif
@@ -157,6 +159,9 @@ void hwm_main_loop(void)
 			break;
 		case HW_COUNTER:
 			hw_counter_triggered();
+			break;
+		case BS_RADIO:
+			bs_radio_triggered();
 			break;
 #ifdef CONFIG_HAS_SDL
 		case SDLEVENTTIMER:

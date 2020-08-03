@@ -15,6 +15,7 @@
 #include "toolchain.h"
 #include <arch/posix/posix_trace.h>
 #include "native_tracing.h"
+#include "bs_radio_argparse.h"
 
 static int s_argc, test_argc;
 static char **s_argv, **test_argv;
@@ -54,9 +55,9 @@ void native_add_command_line_opts(struct args_struct_t *args)
 			growby = ARGS_ALLOC_CHUNK_SIZE;
 		}
 
-		struct args_struct_t *new_args_struct = realloc(args_struct,
-				      (args_aval + growby)*
-				      sizeof(struct args_struct_t));
+		struct args_struct_t *new_args_struct = realloc(
+			args_struct,
+			(args_aval + growby) * sizeof(struct args_struct_t));
 		args_aval += growby;
 		/* LCOV_EXCL_START */
 		if (new_args_struct == NULL) {
@@ -68,7 +69,7 @@ void native_add_command_line_opts(struct args_struct_t *args)
 	}
 
 	memcpy(&args_struct[used_args], args,
-		count*sizeof(struct args_struct_t));
+	       count * sizeof(struct args_struct_t));
 
 	used_args += count - 1;
 	/*
@@ -87,12 +88,12 @@ void native_add_testargs_option(void)
 		 * destination, callback,
 		 * description
 		 */
-		{true, false, false,
-		"testargs", "arg", 'l',
-		(void *)NULL, NULL,
-		"Any argument that follows will be ignored by the top level, "
-		"and made available for possible tests"},
-		ARG_TABLE_ENDMARKER};
+		{ true, false, false, "testargs", "arg", 'l', (void *)NULL,
+		  NULL,
+		  "Any argument that follows will be ignored by the top level, "
+		  "and made available for possible tests" },
+		ARG_TABLE_ENDMARKER
+	};
 
 	native_add_command_line_opts(testargs_options);
 }
@@ -103,7 +104,6 @@ static void print_invalid_opt_error(char *argv)
 				   " Is that feature supported in this build?"
 				   "\n",
 				   argv);
-
 }
 
 /**
@@ -117,6 +117,7 @@ void native_handle_cmd_line(int argc, char *argv[])
 
 	native_add_tracing_options();
 	native_add_testargs_option();
+	bs_radio_argparse_add_options();
 
 	s_argv = argv;
 	s_argc = argc;
@@ -124,10 +125,9 @@ void native_handle_cmd_line(int argc, char *argv[])
 	cmd_args_set_defaults(args_struct);
 
 	for (i = 1; i < argc; i++) {
-
 		if ((cmd_is_option(argv[i], "testargs", 0))) {
 			test_argc = argc - i - 1;
-			test_argv = &argv[i+1];
+			test_argv = &argv[i + 1];
 			break;
 		}
 
@@ -135,6 +135,11 @@ void native_handle_cmd_line(int argc, char *argv[])
 			cmd_print_switches_help(args_struct);
 			print_invalid_opt_error(argv[i]);
 		}
+	}
+
+	if (!bs_radio_argparse_validate()) {
+		cmd_print_switches_help(args_struct);
+		posix_print_error_and_exit("Incorrect BabbleSim configuration\n");
 	}
 }
 

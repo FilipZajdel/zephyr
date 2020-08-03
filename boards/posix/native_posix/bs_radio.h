@@ -9,10 +9,13 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "bs_radio_argparse.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+extern struct bs_radio_args bs_radio_args;
 
 enum bs_radio_event_types {
 	/** On reception success */

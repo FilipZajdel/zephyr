@@ -30,7 +30,8 @@ zephyr_library_sources(
 	cmdline.c
 	hw_counter.c
 	bs_radio.c
-	)
+	bs_radio_argparse.c
+)
 
 zephyr_library_include_directories(
   $ENV{BSIM_COMPONENTS_PATH}/libUtilv1/src/
@@ -55,7 +56,7 @@ zephyr_ld_options(
 )
 
 set(libpath $ENV{BSIM_OUT_PATH}/lib)
-zephyr_library_import(bsim_libUtilv1	${libpath}/libUtilv1.32.a)
+zephyr_library_import(bsim_libUtilv1	  ${libpath}/libUtilv1.32.a)
 zephyr_library_import(bsim_libPhyComv1    ${libpath}/libPhyComv1.32.a)
 zephyr_library_import(bsim_lib2G4PhyComv1 ${libpath}/lib2G4PhyComv1.32.a)
 zephyr_library_import(bsim_libRandv2      ${libpath}/libRandv2.32.a)
