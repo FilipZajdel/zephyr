@@ -104,7 +104,7 @@ static void nrf5_rx_thread(void *arg1, void *arg2, void *arg3)
 
 		__ASSERT_NO_MSG(pkt_len <= CONFIG_NET_BUF_DATA_SIZE);
 
-		LOG_DBG("Frame received");
+		LOG_INF("Frame received: len (%d)", rx_frame->psdu_len);
 
 		pkt = net_pkt_alloc_with_buffer(native_posix_radio->iface,
 						pkt_len, AF_UNSPEC, 0,
@@ -445,7 +445,7 @@ static int configure(struct device *dev, enum ieee802154_config_type type,
 {
 	ARG_UNUSED(dev);
 
-        printf("Configure() called!\n");
+	printf("Configure() called!\n");
 
 	// switch (type) {
 	// case IEEE802154_CONFIG_AUTO_ACK_FPB:
@@ -536,12 +536,15 @@ void on_rx_done(uint8_t *data, uint16_t data_len, int8_t power, uint8_t lqi,
 			continue;
 		}
 
+		LOG_INF("on_rx_done -> len (%u)", data_len);
+
 		if (0 != rx_frame_alloc(&nrf5_data.rx_frames[i], data_len)) {
 			posix_print_warning(
 				"Not enough memory to allocate rx buffer");
 			break;
 		}
 		memcpy(nrf5_data.rx_frames[i].psdu, data, data_len);
+		nrf5_data.rx_frames[i].psdu_len = data_len;
 		// native_posix_radio_data.rx_frames[i].time = time;
 		nrf5_data.rx_frames[i].rssi = power;
 		nrf5_data.rx_frames[i].lqi = lqi;
