@@ -208,10 +208,10 @@ void hwm_init(void)
 {
 	hwm_set_sig_handler();
 	hwtimer_init();
+	bs_radio_init();
 	hw_counter_init();
 	hw_irq_ctrl_init();
-	bs_radio_init();
-
+	
 	hwm_find_next_timer();
 }
 

@@ -15,6 +15,11 @@ LOG_MODULE_REGISTER(wpanusb);
 #include <ieee802154/ieee802154_frame.h>
 #include <net_private.h>
 
+#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <string.h>
+
 #include "wpanusb.h"
 
 #define COMMAND_ARG_DELIIMITER ' '
@@ -33,25 +38,78 @@ uint8_t tx_buf[IEEE802154_MTU + 1 + 1];
 static K_THREAD_STACK_DEFINE(tx_stack, 1024);
 static struct k_thread tx_thread_data;
 
-struct request_command commands[] = {
-	{ RESET, "reset" },
-	{ TX, "tx" },
-	{ XMIT_ASYNC, "xmitasync" },
-	{ ED, "ed" },
-	{ SET_CHANNEL, "setchannel" },
-	{ START, "start" },
-	{ STOP, "stop" },
-	{ SET_SHORT_ADDR, "setshortaddr" },
-	{ SET_PAN_ID, "setpanid" },
-	{ SET_IEEE_ADDR, "setieeeaddr" },
-	{ SET_TXPOWER, "settxpower" },
-	{ SET_CCA_MODE, "setccamode" },
-	{ SET_CCA_ED_LEVEL, "setccaedlevel" },
-	{ SET_CSMA_PARAMS, "setcsmaparams" },
-	{ SET_PROMISCUOUS_MODE, "setpromiscuousmode" },
-};
+struct request_command commands[] = { { RESET, "reset" },
+				      { TX, "tx" },
+				      { XMIT_ASYNC, "xmitasync" },
+				      { ED, "ed" },
+				      { SET_CHANNEL, "setchannel" },
+				      { START, "start" },
+				      { STOP, "stop" },
+				      { SET_SHORT_ADDR, "setshortaddr" },
+				      { SET_PAN_ID, "setpanid" },
+				      { SET_IEEE_ADDR, "setieeeaddr" },
+				      { SET_TXPOWER, "settxpower" },
+				      { SET_CCA_MODE, "setccamode" },
+				      { SET_CCA_ED_LEVEL, "setccaedlevel" },
+				      { SET_CSMA_PARAMS, "setcsmaparams" },
+				      { SET_PROMISCUOUS_MODE,
+					"setpromiscuousmode" },
+				      { SHUT_DOWN, "quit" },
+				      { SHUT_DOWN, "exit" },
+				      { SHUT_DOWN, "q" },
+				      { SHUT_DOWN, "out" } };
 
 #define COMMANDS_NUM ARRAY_SIZE(commands);
+
+/**
+ * Attempts to get a line from stdin until @timeout interval passes.
+ * 
+ * Arguments:
+ * dest [out]	-	The data taken from stdin will be stored here. 
+ * 					If dest is NULL, then the data will be allocated and must
+ * 					be deallocated with a free(*dest) invocation.
+ * size			-	The size of provided buffer.
+ * timeout_s	-	The time to wait until function returns.
+ * 
+ * Returns:
+ * negative		-	The errno code - ETIME on timeout, ENOMEM when either
+ * 					memory allocation fails or provided buffer is too small.
+ * 0 or positive-	The number of bytes read.
+ */
+int getline_timeout(char **dest, unsigned int *size, unsigned long timeout_s)
+{
+	struct timeval tv = { .tv_sec = timeout_s, .tv_usec = 0 };
+	fd_set set;
+	int ret;
+
+	FD_ZERO(&set);
+	FD_SET(STDIN_FILENO, &set);
+
+	ret = select(1, &set, NULL, NULL, &tv);
+
+	if (ret > 0) {
+		char buf[128] = "";
+
+		int nread = read(STDIN_FILENO, buf, 127);
+		buf[nread] = 0;
+		if (!(*dest)) {
+			*dest = malloc(nread * sizeof(**dest));
+
+			if (!*dest) {
+				return -ENOMEM;
+			}
+		} else if (*size < nread) {
+			return -ENOMEM;
+		}
+
+		strncpy(*dest, buf, nread);
+		ret = nread;
+	} else {
+		ret = -ETIME;
+	}
+
+	return ret;
+}
 
 /**
  * Checks if two strings are identical until delimiter occurence in str1.
@@ -147,18 +205,17 @@ enum wpanusb_requests cmd_decode(const char *cmd, uint8_t *arg_idx,
 
 static int set_channel(void *data, int len)
 {
-	struct set_channel *req = data;
+	int channel = atoi(data);
 
-	printf("page %u channel %u", req->page, req->channel);
-
-	return radio_api->set_channel(ieee802154_dev, req->channel);
+	printk("Setting the channel to %d\n", channel);
+	return radio_api->set_channel(ieee802154_dev, channel);
 }
 
 static int set_ieee_addr(void *data, int len)
 {
 	struct set_ieee_addr *req = data;
 
-	printf("len %u", len);
+	printk("len %u", len);
 
 	if (IEEE802154_HW_FILTER &
 	    radio_api->get_capabilities(ieee802154_dev)) {
@@ -178,7 +235,7 @@ static int set_short_addr(void *data, int len)
 {
 	struct set_short_addr *req = data;
 
-	printf("len %u", len);
+	printk("len %u", len);
 
 	if (IEEE802154_HW_FILTER &
 	    radio_api->get_capabilities(ieee802154_dev)) {
@@ -198,7 +255,7 @@ static int set_pan_id(void *data, int len)
 {
 	struct set_pan_id *req = data;
 
-	printf("len %u", len);
+	printk("len %u", len);
 
 	if (IEEE802154_HW_FILTER &
 	    radio_api->get_capabilities(ieee802154_dev)) {
@@ -216,14 +273,14 @@ static int set_pan_id(void *data, int len)
 
 static int start(void)
 {
-	printf("Start IEEE 802.15.4 device");
+	printk("Start IEEE 802.15.4 device");
 
 	return radio_api->start(ieee802154_dev);
 }
 
 static int stop(void)
 {
-	printf("Stop IEEE 802.15.4 device");
+	printk("Stop IEEE 802.15.4 device");
 
 	return radio_api->stop(ieee802154_dev);
 }
@@ -235,20 +292,30 @@ static int tx(struct net_pkt *pkt)
 	int retries = 3;
 	int ret;
 
-	printf("len %d seq %u", buf->len, seq);
+	printk("len %d seq %u\n", buf->len, seq);
+	for (int i = 0; i < buf->len; i++) {
+		printk("%u\n", buf->data[i]);
+	}
+	printk("The end of buf\n");
 
 	do {
 		ret = radio_api->tx(ieee802154_dev, IEEE802154_TX_MODE_DIRECT,
 				    pkt, buf);
+		printk("%s\n", ret == 0 ? "Data sent" : "Retry to send");
 	} while (ret && retries--);
 
 	if (ret) {
-		printf("Error sending data, seq %u", seq);
+		printk("Error sending data, seq %u", seq);
 		/* Send seq = 0 for unsuccessful send */
 		seq = 0U;
 	}
 
 	return ret;
+}
+
+int cca()
+{
+	return radio_api->cca(ieee802154_dev);
 }
 
 static int net_pkt_fill(struct net_pkt **pkt, uint8_t *bytes, uint8_t len)
@@ -270,13 +337,18 @@ static int net_pkt_fill(struct net_pkt **pkt, uint8_t *bytes, uint8_t len)
 	// net_pkt_write(pkt, *data, *len);
 
 	// LOG_DBG("pkt %p len %u seq %u", pkt, *len, setup->wIndex);
-	printf("pkt %p len %u\n", *pkt, len);
+	printk("pkt %p len %u\n", *pkt, len);
 	return 0;
 }
 
 static void tx_thread(void)
 {
-	printf("Tx thread started");
+	printk("Radio loop started at channel 20\n");
+	start();
+	set_channel("20", 3);
+	srand(time(NULL));
+
+	printk("Insert command:\n>\t");
 
 	while (1) {
 		uint8_t cmd;
@@ -289,37 +361,44 @@ static void tx_thread(void)
 		uint8_t args_len;
 		uint8_t data[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 0 };
 
-		printf("\nnative_posix802154> ");
-
-		n_read = getline(&cmd_buf, &buf_size, stdin);
+		n_read = getline_timeout(&cmd_buf, &buf_size, 2);
 		if (n_read >= 0) {
 			str_cut(cmd_buf, '\n');
 
 			if (0 == strcmp("help", cmd_buf) ||
 			    0 == strcmp("-h", cmd_buf)) {
-				printf("native_posix802154>\nAvailable commands:\n");
-				for (int i = 0; i < COMMANDS_NUM; i++) {
-					printf("%s\n", commands[i].command);
+				printk("Available commands:\n");
+				for (int i = 0; i < ARRAY_SIZE(commands); i++) {
+					printk("%s\n", commands[i].command);
 				}
 
 				free(cmd_buf);
+				printk("Insert command> \n");
 				continue;
 			}
+		} else {
+			k_msleep(250); // To let the scheduler work
+			continue;
 		}
 
+		k_msleep(200);
 		cmd = cmd_decode(cmd_buf, &args_idx, &args_len);
 
 		// pkt = k_fifo_get(&tx_queue, K_FOREVER);
-		// buf = net_buf_frag_last(pkt->buffer);
-		// net_pkt_hexdump(pkt, ">");
 		net_pkt_fill(&pkt, data, ARRAY_SIZE(data));
+		buf = net_buf_frag_last(pkt->buffer);
+		net_pkt_hexdump(pkt, ">");
 
 		switch (cmd) {
 		case RESET:
-			printf("Reset device");
+			printk("Reset device");
 			break;
 		case TX:
-			tx(pkt);
+			if (!cca()) {
+				tx(pkt);
+			} else {
+				printk("CCA Failed\n");
+			}
 			break;
 		case START:
 			start();
@@ -339,8 +418,10 @@ static void tx_thread(void)
 		case SET_PAN_ID:
 			set_pan_id(cmd_buf + args_idx, args_len);
 			break;
+		case SHUT_DOWN:
+			posix_exit(0);
 		default:
-			printf("%s %x: Not handled for now", cmd_buf, cmd);
+			printk("%s %x: Not handled", cmd_buf, cmd);
 			break;
 		}
 
@@ -348,6 +429,8 @@ static void tx_thread(void)
 
 		k_yield();
 		free(cmd_buf);
+		k_msleep(rand() % 250); // To let the scheduler time to work
+		printk("Insert command:\n>\t");
 	}
 }
 
@@ -373,12 +456,12 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
 	int ret;
 	// uint8_t ep;
 
-	printf("Got data, pkt %p, len %d", pkt, (int)len);
+	printk("Got data, pkt %p, len %d", pkt, (int)len);
 
 	net_pkt_hexdump(pkt, "<");
 
 	if (len > (sizeof(tx_buf) - 2)) {
-		printf("Too large packet");
+		printk("Too large packet");
 		ret = -ENOMEM;
 		goto out;
 	}
@@ -393,7 +476,7 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
 
 	ret = net_pkt_read(pkt, p, len);
 	if (ret < 0) {
-		printf("Cannot read pkt");
+		printk("Cannot read pkt");
 		goto out;
 	}
 
@@ -412,7 +495,7 @@ out:
 
 void main(void)
 {
-	printf("Starting wpanusb\n");
+	printk("Starting wpanusb\n");
 
 	/* Initialize net_pkt */
 	net_pkt_init();
@@ -423,12 +506,12 @@ void main(void)
 	if (ieee802154_dev) {
 		radio_api = (struct ieee802154_radio_api *)
 				    ieee802154_dev->driver_api;
-		printf("radio_api %p of device %s initialized", radio_api,
+		printk("radio_api %p of device %s initialized\n", radio_api,
 		       ieee802154_dev->name);
 		/* Initialize transmit queue */
 		init_tx_queue();
 	} else {
-		printf("Couldn't bind %s\n",
+		printk("Couldn't bind %s\n",
 		       CONFIG_IEEE802154_NATIVE_POSIX_DRV_NAME);
 	}
 }

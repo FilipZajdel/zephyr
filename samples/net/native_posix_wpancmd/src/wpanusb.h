@@ -6,6 +6,9 @@
 
 #define COMMAND_LEN (20)
 
+#define FOR_EACH_IN_ARR(itr, arr)	\
+	for (typeof(*arr) *itr; itr < arr+ARRAY_SIZE(arr); itr++)
+
 enum wpanusb_requests {
 	RESET,
 	TX,
@@ -22,6 +25,7 @@ enum wpanusb_requests {
 	SET_CCA_ED_LEVEL,
 	SET_CSMA_PARAMS,
 	SET_PROMISCUOUS_MODE,
+	SHUT_DOWN,
 };
 
 struct request_command {

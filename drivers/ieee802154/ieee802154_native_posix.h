@@ -1,19 +1,21 @@
-/* ieee802154_nrf5.h - nRF5 802.15.4 driver */
+/* ieee802154_native_posix.h - Native Posix 802.15.4 driver */
 
 /*
- * Copyright (c) 2017 Nordic Semiconductor ASA
+ * Copyright (c) 2020 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 #ifndef ZEPHYR_DRIVERS_IEEE802154_IEEE802154_NATIVE_POSIX_H_
 #define ZEPHYR_DRIVERS_IEEE802154_IEEE802154_NATIVE_POSIX_H_
 
-// #include "native_posix_temp/native_posix_802154_config.h"
+#define NATIVE_POSIX_FCS_LENGTH   (2)
+#define NATIVE_POSIX_PSDU_LENGTH  (125)
+#define NATIVE_POSIX_PHR_LENGTH   (1)
+#define NATIVE_POSIX_802154_RX_BUFFERS (20)
+#define NATIVE_POSIX_IEEE802154_RX_STACK_SIZE	(4096)
 
-#define NRF5_FCS_LENGTH   (2)
-#define NRF5_PSDU_LENGTH  (125)
-#define NRF5_PHR_LENGTH   (1)
-#define NRF_802154_RX_BUFFERS (20) /* TODO: resolve */
+#include <stdint.h>
+#include <zephyr.h>
 
 typedef struct __attribute__((packed)) {
 	uint8_t frame_control[2];
@@ -37,16 +39,17 @@ typedef struct __attribute__((packed)) {
 } ieee802154_phy_frame_t;
 
 
-struct nrf5_802154_rx_frame {
+struct native_posix_802154_rx_frame {
 	void *fifo_reserved; /* 1st word reserved for use by fifo. */
 	uint8_t *psdu; /* Pointer to a received frame. */
+	uint16_t psdu_len;
 	uint32_t time; /* RX timestamp. */
 	uint8_t lqi; /* Last received frame LQI value. */
 	int8_t rssi; /* Last received frame RSSI value. */
 	bool ack_fpb; /* FPB value in ACK sent for the received frame. */
 };
 
-struct nrf5_802154_data {
+struct native_posix_802154_data {
 	/* Pointer to the network interface. */
 	struct net_if *iface;
 
@@ -54,7 +57,7 @@ struct nrf5_802154_data {
 	uint8_t mac[8];
 
 	/* RX thread stack. */
-	K_THREAD_STACK_MEMBER(rx_stack, /* CONFIG_IEEE802154_NRF5_RX_STACK_SIZE */ 1024);
+	K_THREAD_STACK_MEMBER(rx_stack, NATIVE_POSIX_IEEE802154_RX_STACK_SIZE);
 
 	/* RX thread control block. */
 	struct k_thread rx_thread;
@@ -65,7 +68,7 @@ struct nrf5_802154_data {
 	/* Buffers for passing received frame pointers and data to the
 	 * RX thread via rx_fifo object.
 	 */
-	struct nrf5_802154_rx_frame rx_frames[NRF_802154_RX_BUFFERS];
+	struct native_posix_802154_rx_frame rx_frames[NATIVE_POSIX_802154_RX_BUFFERS];
 
 	/* Frame pending bit value in ACK sent for the last received frame. */
 	bool last_frame_ack_fpb;
@@ -84,7 +87,7 @@ struct nrf5_802154_data {
 	/* TX buffer. First byte is PHR (length), remaining bytes are
 	 * MPDU data.
 	 */
-	uint8_t tx_psdu[NRF5_PHR_LENGTH + NRF5_PSDU_LENGTH + NRF5_FCS_LENGTH];
+	uint8_t tx_psdu[NATIVE_POSIX_PHR_LENGTH + NATIVE_POSIX_PSDU_LENGTH + NATIVE_POSIX_FCS_LENGTH];
 
 	/* TX result, updated in radio transmit callbacks. */
 	uint8_t tx_result;
@@ -92,7 +95,7 @@ struct nrf5_802154_data {
 	/* A buffer for the received ACK frame. psdu pointer be NULL if no
 	 * ACK was requested/received.
 	 */
-	struct nrf5_802154_rx_frame ack_frame;
+	struct native_posix_802154_rx_frame ack_frame;
 
 	/* Callback handler of the currently ongoing energy scan.
 	 * It shall be NULL if energy scan is not in progress.
@@ -105,4 +108,4 @@ struct nrf5_802154_data {
 	ieee802154_event_cb_t event_handler;
 };
 
-#endif /* ZEPHYR_DRIVERS_IEEE802154_IEEE802154_NRF5_H_ */
+#endif /* ZEPHYR_DRIVERS_IEEE802154_IEEE802154_NATIVE_POSIX_H_ */

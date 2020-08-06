@@ -4,9 +4,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <zephyr.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include "hw_models_top.h"
 #include "bs_radio.h"
 #include "bs_types.h"
@@ -19,7 +21,7 @@
 #define RX_TX_BPS (1000000)
 #define TX_POWER_LVL (20)
 
-#define RADIO_SAMPLING_INTERVAL (2500)
+#define RADIO_SAMPLING_INTERVAL (1000)
 #define RADIO_TX_INTERVAL (1)
 #define IEEE802154_PHYADDRESS (0xDEAD)
 
@@ -37,7 +39,7 @@ enum bs_radio_states {
 
 uint64_t bs_radio_timer;
 
-static uint64_t last_time_talk_with_phy;
+static uint64_t last_phy_sync_time;
 static enum bs_radio_states radio_state;
 static struct radio_config radio_config;
 static uint8_t rx_buf[RX_TX_BUF_SIZE];
@@ -45,6 +47,7 @@ static uint8_t tx_buf[RX_TX_BUF_SIZE];
 static uint16_t rx_len;
 static uint16_t tx_len;
 static bool is_running;
+static uint8_t device_eui64[8];
 
 static bs_radio_event_cb_t radio_event_cb = NULL;
 
@@ -81,9 +84,10 @@ static int try_receive(uint32_t scan_duration, uint64_t *end_time);
 static uint64_t packet_bitlen(uint32_t packet_len, uint64_t bps);
 static char *rx_status_to_str(uint8_t status, char *buf);
 static void send_data(uint64_t tx_start_time, uint64_t *end_time);
+static void fill_eui64(void);
 
 /**
- * Initialize the communication with babblesim.
+ * Initialize the communication with BabbleSim.
  */
 void bs_radio_init(void)
 {
@@ -91,8 +95,8 @@ void bs_radio_init(void)
 
 	bs_radio_timer = NEVER;
 	radio_state = RADIO_STATE_RX_IDLE;
-        radio_config.channel = 0;
-        radio_config.tx_power = 0;
+	radio_config.channel = 0;
+	radio_config.tx_power = 0;
 	rx_len = 0;
 	tx_len = 0;
 	is_running = false;
@@ -109,31 +113,44 @@ void bs_radio_init(void)
 				"Failed to initialize communication with %s\n",
 				args->p_id);
 		}
+
+		fill_eui64();
 	}
 }
 
+/**
+ * Closes the connection with BabbleSim.
+ */
 void bs_radio_deinit(void)
 {
 	p2G4_dev_disconnect_c();
 }
 
 /**
- * Starts waiting for an incoming reception
+ * Starts waiting for an incoming reception.
  */
 void bs_radio_start(bs_radio_event_cb_t event_cb)
 {
+	if (!bs_radio_argparse_get()->is_bsim) {
+		return;
+	}
+
 	is_running = true;
 	radio_event_cb = event_cb;
-	bs_radio_timer = hwm_get_time() + RADIO_SAMPLING_INTERVAL;
 
+	bs_radio_timer = hwm_get_time() + RADIO_SAMPLING_INTERVAL;
 	hwm_find_next_timer();
 }
 
 /**
- * Stops all ongoing operations
+ * Stops all ongoing operations.
  */
 void bs_radio_stop()
 {
+	if (!bs_radio_argparse_get()->is_bsim) {
+		return;
+	}
+
 	is_running = false;
 	radio_state = RADIO_STATE_RX_IDLE;
 	bs_radio_timer = NEVER;
@@ -141,7 +158,17 @@ void bs_radio_stop()
 	hwm_find_next_timer();
 }
 
-int bs_radio_channel_set(uint16_t channel)
+/**
+ * Set the frequency of the radio.
+ * 
+ * Arguments:
+ * freq         - a frequency that radio will operate on
+ * 
+ * Returns:
+ * 0            -  Success
+ * negative     -  Frequency couldn't be set (radio is busy)
+ */
+int bs_radio_frequency_set(uint16_t freq)
 {
 	if (radio_state != RADIO_STATE_RX_IDLE) {
 		bs_trace_warning("Channel can't be set during ongoing "
@@ -149,16 +176,26 @@ int bs_radio_channel_set(uint16_t channel)
 		return -1;
 	}
 
-	radio_config.channel = channel;
+	radio_config.channel = freq;
 	return 0;
 }
 
-uint16_t bs_radio_channel_get(void)
+uint16_t bs_radio_frequency_get(void)
 {
 	return radio_config.channel;
 }
 
-int bs_radio_tx_power_set(uint16_t power)
+/**
+ * Set the transmissing power.
+ * 
+ * Arguments:
+ * power_dBm    -    The value of tx power in dBm
+ * 
+ * Returns:
+ * 0            -    Success
+ * negative     -    The power couldn't be set (radio is busy)
+ */
+int bs_radio_tx_power_set(uint16_t power_dBm)
 {
 	if (radio_state != RADIO_STATE_RX_IDLE) {
 		bs_trace_warning("TX Power can't be set during "
@@ -166,13 +203,32 @@ int bs_radio_tx_power_set(uint16_t power)
 		return -1;
 	}
 
-	radio_config.tx_power = power;
+	radio_config.tx_power = power_dBm;
 	return 0;
 }
 
-int bs_radio_rssi(void){
-        bs_trace_warning("%s not supported\n", __func__);
-        return -1;
+/** Returns current setting of tx power */
+uint16_t bs_radio_tx_power_get(void)
+{
+	return radio_config.tx_power;
+}
+
+/**
+ * Perform RSSI sensing.
+ * 
+ * The result is returned by a callback bs_radio_event_cb_t either as 
+ * BS_RADIO_EVENT_RSSI_DONE or BS_RADIO_EVENT_RSSI_FAILED.
+ * The function will fail when it's called in the middle of ongoing 
+ * transmission.
+ * 
+ * Returns:
+ * 0            - rssi can be sensed
+ * negative     - rssi cannot be sensed
+ */
+int bs_radio_rssi(uint64_t duration_us)
+{
+	bs_trace_warning("%s not supported\n", __func__);
+	return -ENOTSUP;
 }
 
 /**
@@ -206,21 +262,19 @@ void bs_radio_triggered(void)
 
 	switch (radio_state) {
 	case RADIO_STATE_RX_IDLE: {
-		int ret = try_receive(
-			packet_bitlen(RX_TX_BUF_SIZE,
-				      RX_TX_BPS),
-			&last_rx_try_end);
+		int ret = try_receive(packet_bitlen(RX_TX_BUF_SIZE, RX_TX_BPS),
+				      &last_rx_try_end);
 
 		if (0 == ret) {
 			bs_trace_debug(0, "Im going from `RX_IDLE` to `RX`\n");
 			radio_state = RADIO_STATE_RX;
 			bs_radio_timer = last_rx_try_end;
-			hwm_find_next_timer();
+			// hwm_find_next_timer();
 		} else {
 			radio_state = RADIO_STATE_RX_IDLE;
 			bs_radio_timer =
-				last_rx_try_end + RADIO_SAMPLING_INTERVAL;
-			hwm_find_next_timer();
+				last_rx_try_end + 1;// + RADIO_SAMPLING_INTERVAL;
+			// hwm_find_next_timer();
 		}
 		break;
 	}
@@ -238,32 +292,32 @@ void bs_radio_triggered(void)
 			bs_trace_debug(0, "Im going from `RX` to `RX_IDLE`\n");
 			radio_state = RADIO_STATE_RX_IDLE;
 			bs_radio_timer = current_time + RADIO_SAMPLING_INTERVAL;
-			hwm_find_next_timer();
+			// hwm_find_next_timer();
 			last_rx_try_end = NEVER;
 		} else {
 			bs_trace_warning(
 				"Bad state, it shouldn't have happened\n");
+			radio_state = RADIO_STATE_RX_IDLE;
 			bs_radio_timer = NEVER;
-			hwm_find_next_timer();
+			// hwm_find_next_timer();
 		}
 		break;
 	case RADIO_STATE_TX_PREPARE:
-		if (last_time_talk_with_phy <= current_time) {
+		if (last_phy_sync_time <= current_time) {
 			bs_trace_debug(0,
-				       "Im going from `TX_PREAPARE` to `TX`\n");
+				       "Im going from `TX_PREPARE` to `TX`\n");
 			send_data(current_time + 1, &last_tx_end);
+			bs_trace_debug(0, "After data send\n");
 			radio_state = RADIO_STATE_TX;
 			bs_radio_timer = last_tx_end;
-			hwm_find_next_timer();
+			// hwm_find_next_timer();
 		} else {
-			bs_radio_timer = last_time_talk_with_phy;
-			hwm_find_next_timer();
+			bs_radio_timer = last_phy_sync_time;
+			// hwm_find_next_timer();
 		}
 		break;
 	case RADIO_STATE_TX:
 		if (current_time >= last_tx_end) {
-			/* FIX this is -> state machine will not work if 
-                                current_time < last_tx_end */
 			/* Now we can say that the data was sent */
 			bs_trace_debug(0, "Data sent at: %lu\n", current_time);
 
@@ -276,21 +330,21 @@ void bs_radio_triggered(void)
 			radio_state = RADIO_STATE_RX_IDLE;
 			last_tx_end = NEVER;
 			bs_radio_timer = current_time + RADIO_TX_INTERVAL;
-			hwm_find_next_timer();
+			// hwm_find_next_timer();
 		} else {
 			bs_trace_warning(
 				"Bad state, it shouldn't have happened\n");
+			radio_state = RADIO_STATE_RX_IDLE;
 			bs_radio_timer = NEVER;
-			hwm_find_next_timer();
+			// hwm_find_next_timer();
 		}
-
 	default:
 		break;
 	}
 }
 
 /**
- * Perform transmission.
+ * Start the transmission.
  * 
  * If the device is not currently receiving or transmitting,
  * it will send data. Otherwise it will return with error.
@@ -306,6 +360,10 @@ void bs_radio_triggered(void)
  */
 int bs_radio_tx(uint8_t *data, uint16_t data_len, bool cca)
 {
+	if (!bs_radio_argparse_get()->is_bsim) {
+		return -EFAULT;
+	}
+
 	/* (void *)cca; */ /* Unused */
 	if (!is_running) {
 		bs_trace_debug(0, "Radio was not started\n");
@@ -337,6 +395,53 @@ int bs_radio_tx(uint8_t *data, uint16_t data_len, bool cca)
 }
 
 /**
+ * Perform cca.
+ * 
+ * CCA result is returned by a bs_radio_event_cb_t call with the status of
+ * either BS_RADIO_EVENT_CCA_DONE or BS_RADIO_EVENT_CCA_FAILED.
+ * 
+ * Returns:
+ * 0            -       Success (cca will be performed)
+ * negative     -       CCA cannot be performed (radio is busy)
+ */
+int bs_radio_cca(void)
+{
+	int cca_result;
+
+	if (radio_state == RADIO_STATE_RX) {
+		cca_result = -EBUSY;
+	} else if (radio_state == RADIO_STATE_TX ||
+		   radio_state == RADIO_STATE_TX_PREPARE) {
+		cca_result = -EIO;
+	} else {
+		cca_result = 0;
+	}
+
+	return cca_result;
+}
+
+/**
+ * Returns the eui64.
+ * 
+ * The address is generated based on BabbleSim device id in given simulation.
+ * Meaning command line parameter "-d". Every device in a given simulation
+ * has different mac, but can have the same across different simulations
+ * if run with the same id.
+ * 
+ * Arguments:
+ * mac [out]   -   Pointer to copy the eui64 - can't be NULL
+ */
+void bs_radio_get_mac(uint8_t *mac)
+{
+	if (mac == NULL) {
+		bs_trace_error("%s - mac cannot be NULL");
+		return;
+	}
+
+	memcpy(mac, device_eui64, 8);
+}
+
+/**
  * Private functions
  */
 
@@ -362,8 +467,9 @@ static int try_receive(uint32_t scan_duration, uint64_t *end_time)
 	int ret;
 	p2G4_rx_done_t rx_done_s;
 	uint8_t *frame = NULL;
+	char status_buf[20];
 
-        ongoing_rx.radio_params.center_freq = radio_config.channel;
+	ongoing_rx.radio_params.center_freq = radio_config.channel;
 
 	ongoing_rx.pream_and_addr_duration = packet_bitlen(2, RX_TX_BPS);
 	ongoing_rx.header_duration = 0;
@@ -373,14 +479,13 @@ static int try_receive(uint32_t scan_duration, uint64_t *end_time)
 
 	ret = p2G4_dev_req_rx_c_b(&ongoing_rx, &rx_done_s, &frame, 0, NULL);
 	*end_time = rx_done_s.end_time;
-	last_time_talk_with_phy = rx_done_s.end_time;
+	last_phy_sync_time = rx_done_s.end_time;
 
 	if ((ret >= 0) && (rx_done_s.packet_size > 0)) {
 		memcpy(rx_buf, frame, rx_done_s.packet_size);
 		rx_len = rx_done_s.packet_size;
 		free(frame);
-		char status_buf[20];
-		printf("RX status: %s\n",
+		bs_trace_debug(0, "RX status: %s\n",
 		       rx_status_to_str(rx_done_s.status, status_buf));
 		return 0;
 	}
@@ -400,8 +505,8 @@ static void send_data(uint64_t tx_start_time, uint64_t *end_time)
 	p2G4_tx_done_t tx_done_s;
 	int result;
 
-        ongoing_tx.radio_params.center_freq = radio_config.channel;
-        ongoing_tx.power_level = radio_config.tx_power;
+	ongoing_tx.radio_params.center_freq = radio_config.channel;
+	ongoing_tx.power_level = radio_config.tx_power;
 	ongoing_tx.packet_size = tx_len;
 	ongoing_tx.start_time = tx_start_time;
 	ongoing_tx.end_time =
@@ -411,16 +516,26 @@ static void send_data(uint64_t tx_start_time, uint64_t *end_time)
 	result = p2G4_dev_req_tx_c_b(&ongoing_tx, tx_buf, &tx_done_s);
 
 	*end_time = ongoing_tx.end_time;
-	last_time_talk_with_phy = ongoing_tx.end_time;
+	last_phy_sync_time = ongoing_tx.end_time;
 }
 
-/**
- * Calculate the time in air of a number of bytes
- */
+/* Calculate the time in air of a number of bytes */
 static uint64_t packet_bitlen(uint32_t packet_len, uint64_t bps)
 {
 	uint64_t bits_per_us = bps / 1000000;
 	return (packet_len * 8) / bits_per_us;
+}
+
+/* Generate MAC address using BabbleSim device's id */
+static void fill_eui64(void)
+{
+	struct bs_radio_args *args = bs_radio_argparse_get();
+
+	for (int i = 2; i < 8; i++) {
+		device_eui64[i] = 0xFF;
+	}
+	device_eui64[1] = (uint8_t)((args->device_nbr >> 8) && 0xFF);
+	device_eui64[0] = (uint8_t)(args->device_nbr && 0xFF);
 }
 
 static char *rx_status_to_str(uint8_t status, char *buf)

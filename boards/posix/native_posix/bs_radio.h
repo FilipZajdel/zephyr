@@ -37,10 +37,10 @@ enum bs_radio_event_types {
 	BS_RADIO_EVENT_CCA_FAILED,
 
 	/** On energy measurement success */
-	BS_RADIO_EVENT_ENERGY_DONE,
+	BS_RADIO_EVENT_RSSI_DONE,
 
 	/** On energy measurement failure */
-	BS_RADIO_EVENT_ENERGY_FAILED
+	BS_RADIO_EVENT_RSSI_FAILED
 };
 
 struct bs_radio_event_data {
@@ -70,11 +70,15 @@ void bs_radio_start(bs_radio_event_cb_t event_cb);
 void bs_radio_stop();
 
 int bs_radio_tx(uint8_t *data, uint16_t data_len, bool cca);
-int bs_radio_rssi(void);
+int bs_radio_rssi(uint64_t duration_us);
 
-int bs_radio_channel_set(uint16_t channel);
-uint16_t bs_radio_channel_get(void);
-int bs_radio_tx_power_set(uint16_t power);
+int bs_radio_cca(void);
+int bs_radio_frequency_set(uint16_t freq);
+uint16_t bs_radio_frequency_get(void);
+int bs_radio_tx_power_set(uint16_t power_dBm);
+uint16_t bs_radio_tx_power_get(void);
+
+void bs_radio_get_mac(uint8_t *mac);
 
 #ifdef __cplusplus
 }

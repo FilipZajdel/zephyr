@@ -1,7 +1,7 @@
-/* ieee802154_nrf5.c - nRF5 802.15.4 driver */
+/* ieee802154_native_posix.c - Native Posix BabbleSim 802.15.4 driver */
 
 /*
- * Copyright (c) 2017 Nordic Semiconductor ASA
+ * Copyright (c) 2020 Nordic Semiconductor ASA
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,6 +14,7 @@
 #endif
 
 #include <errno.h>
+#include <stdlib.h>
 
 #include <kernel.h>
 #include <arch/cpu.h>
@@ -38,38 +39,43 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <random/rand32.h>
 
 #include <net/ieee802154_radio.h>
-
+#include "bs_radio.h"
 #include "ieee802154_native_posix.h"
 
-struct nrf5_802154_config {
-	void (*irq_config_func)(struct device *dev);
+struct native_posix_pib {
+	uint8_t ext_addr[8];
+	uint8_t short_addr[2];
+	uint8_t pan_id[2];
+	enum ieee802154_filter_type filter_type; // ?? Do I need it?
 };
 
-static struct nrf5_802154_data nrf5_data;
+static struct native_posix_802154_data nrf5_data;
+static struct native_posix_pib pib;
 
 #define ACK_REQUEST_BYTE 1
 #define ACK_REQUEST_BIT (1 << 5)
 #define FRAME_PENDING_BYTE 1
 #define FRAME_PENDING_BIT (1 << 4)
 
+#define FREQUENCY_BASE_MHz (2400)
+#define CHANNEL_SEPARATION_MHz (5)
+
 /* Convenience defines for RADIO */
-#define NRF5_802154_DATA(dev)                                                  \
-	((struct nrf5_802154_data *const)(dev)->driver_data)
+#define NATIVE_POSIX_802154_DATA(dev)                                          \
+	((struct native_posix_802154_data *const)(dev)->driver_data)
 
-#define NRF5_802154_CFG(dev)                                                   \
-	((const struct nrf5_802154_config *const)(dev)->config_info)
-
-static void nrf5_get_eui64(uint8_t *mac)
-{
-	// memcpy(mac, (const uint32_t *)&NRF_FICR->DEVICEID, 8);
-}
+static void bs_radio_event_cb(struct bs_radio_event_data *data);
+static int rx_frame_alloc(struct native_posix_802154_rx_frame *rx_frame,
+			  uint16_t psdu_len);
+static void rx_frame_free(struct native_posix_802154_rx_frame *rx_frame);
 
 static void nrf5_rx_thread(void *arg1, void *arg2, void *arg3)
 {
 	struct device *dev = (struct device *)arg1;
-	struct nrf5_802154_data *nrf5_radio = NRF5_802154_DATA(dev);
+	struct native_posix_802154_data *native_posix_radio =
+		NATIVE_POSIX_802154_DATA(dev);
 	struct net_pkt *pkt;
-	struct nrf5_802154_rx_frame *rx_frame;
+	struct native_posix_802154_rx_frame *rx_frame;
 	uint8_t pkt_len;
 
 	ARG_UNUSED(arg2);
@@ -81,7 +87,7 @@ static void nrf5_rx_thread(void *arg1, void *arg2, void *arg3)
 
 		LOG_DBG("Waiting for frame");
 
-		rx_frame = k_fifo_get(&nrf5_radio->rx_fifo, K_FOREVER);
+		rx_frame = k_fifo_get(&native_posix_radio->rx_fifo, K_FOREVER);
 
 		__ASSERT_NO_MSG(rx_frame->psdu);
 
@@ -91,23 +97,24 @@ static void nrf5_rx_thread(void *arg1, void *arg2, void *arg3)
 		 */
 		if (IS_ENABLED(CONFIG_IEEE802154_RAW_MODE) ||
 		    IS_ENABLED(CONFIG_NET_L2_OPENTHREAD)) {
-			pkt_len = rx_frame->psdu[0];
+			pkt_len = rx_frame->psdu_len;
 		} else {
-			pkt_len = rx_frame->psdu[0] - NRF5_FCS_LENGTH;
+			pkt_len = rx_frame->psdu_len - NATIVE_POSIX_FCS_LENGTH;
 		}
 
 		__ASSERT_NO_MSG(pkt_len <= CONFIG_NET_BUF_DATA_SIZE);
 
 		LOG_DBG("Frame received");
 
-		pkt = net_pkt_alloc_with_buffer(nrf5_radio->iface, pkt_len,
-						AF_UNSPEC, 0, K_NO_WAIT);
+		pkt = net_pkt_alloc_with_buffer(native_posix_radio->iface,
+						pkt_len, AF_UNSPEC, 0,
+						K_NO_WAIT);
 		if (!pkt) {
 			LOG_ERR("No pkt available");
 			goto drop;
 		}
 
-		if (net_pkt_write(pkt, rx_frame->psdu + 1, pkt_len)) {
+		if (net_pkt_write(pkt, rx_frame->psdu, pkt_len)) {
 			goto drop;
 		}
 
@@ -128,26 +135,20 @@ static void nrf5_rx_thread(void *arg1, void *arg2, void *arg3)
 		LOG_DBG("Caught a packet (%u) (LQI: %u)", pkt_len,
 			rx_frame->lqi);
 
-		if (net_recv_data(nrf5_radio->iface, pkt) < 0) {
+		if (net_recv_data(native_posix_radio->iface, pkt) < 0) {
 			LOG_ERR("Packet dropped by NET stack");
 			goto drop;
 		}
 
-		// nrf_802154_buffer_free_raw(rx_frame->psdu);
-		/* TODO: implement that */
-		rx_frame->psdu = NULL;
-
+		rx_frame_free(rx_frame);
 		if (LOG_LEVEL >= LOG_LEVEL_DBG) {
-			log_stack_usage(&nrf5_radio->rx_thread);
+			log_stack_usage(&native_posix_radio->rx_thread);
 		}
 
 		continue;
 
 	drop:
-		// nrf_802154_buffer_free_raw(rx_frame->psdu);
-		/* TODO: implement that */
-		rx_frame->psdu = NULL;
-
+		rx_frame_free(rx_frame);
 		if (pkt) {
 			net_pkt_unref(pkt);
 		}
@@ -156,140 +157,95 @@ static void nrf5_rx_thread(void *arg1, void *arg2, void *arg3)
 
 /* Radio device API */
 
-static enum ieee802154_hw_caps nrf5_get_capabilities(struct device *dev)
+static enum ieee802154_hw_caps get_caps(struct device *dev)
 {
 	ARG_UNUSED(dev);
+	LOG_DBG("%s", __func__);
 
 	return IEEE802154_HW_FCS | IEEE802154_HW_FILTER | IEEE802154_HW_CSMA |
-	       IEEE802154_HW_2_4_GHZ | IEEE802154_HW_TX_RX_ACK |
+	       IEEE802154_HW_2_4_GHZ | /*IEEE802154_HW_TX_RX_ACK |*/
 	       IEEE802154_HW_ENERGY_SCAN;
 }
 
-static int nrf5_cca(struct device *dev)
-{
-	return true;
-}
-
-static int nrf5_set_channel(struct device *dev, uint16_t channel)
+static int cca(struct device *dev)
 {
 	ARG_UNUSED(dev);
+	LOG_DBG("%s", __func__);
 
-	LOG_DBG("%u", channel);
+	return bs_radio_cca();
+}
 
-	if (channel < 11 || channel > 26) {
+static int set_channel(struct device *dev, uint16_t channel)
+{
+	ARG_UNUSED(dev);
+	uint16_t chan_frequency;
+
+	if ((channel < 11) || (channel > 26)) {
 		return -EINVAL;
 	}
 
-	// nrf_802154_channel_set(channel);
-	/* TODO: Set the channel */
+	chan_frequency =
+		FREQUENCY_BASE_MHz + ((channel - 10) * CHANNEL_SEPARATION_MHz);
 
-	return 0;
+	return bs_radio_frequency_set(chan_frequency);
 }
 
-static int nrf5_energy_scan_start(struct device *dev, uint16_t duration,
-				  energy_scan_done_cb_t done_cb)
-{
-	int err = 0;
-
-	// ARG_UNUSED(dev);
-
-	// if (nrf5_data.energy_scan_done == NULL) {
-	// 	nrf5_data.energy_scan_done = done_cb;
-
-	// 	if (nrf_802154_energy_detection(duration * 1000) == false) {
-	// 		nrf5_data.energy_scan_done = NULL;
-	// 		err = -EPERM;
-	// 	}
-	// } else {
-	// 	err = -EALREADY;
-	// }
-	/* TODO: implement that */
-
-	return err;
-}
-
-static int nrf5_set_pan_id(struct device *dev, uint16_t pan_id)
-{
-	// uint8_t pan_id_le[2];
-
-	ARG_UNUSED(dev);
-
-	// sys_put_le16(pan_id, pan_id_le);
-	// nrf_802154_pan_id_set(pan_id_le);
-
-	/* TODO: implement that */
-
-	LOG_DBG("0x%x", pan_id);
-
-	return 0;
-}
-
-static int nrf5_set_short_addr(struct device *dev, uint16_t short_addr)
-{
-	// uint8_t short_addr_le[2];
-
-	ARG_UNUSED(dev);
-
-	// sys_put_le16(short_addr, short_addr_le);
-	// nrf_802154_short_address_set(short_addr_le);
-
-	/* TODO: implement that */
-
-	LOG_DBG("0x%x", short_addr);
-
-	return 0;
-}
-
-static int nrf5_set_ieee_addr(struct device *dev, const uint8_t *ieee_addr)
+static int energy_scan_start(struct device *dev, uint16_t duration,
+			     energy_scan_done_cb_t done_cb)
 {
 	ARG_UNUSED(dev);
+	ARG_UNUSED(done_cb);
+	LOG_DBG("%s", __func__);
 
-	LOG_DBG("IEEE address %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x",
-		ieee_addr[7], ieee_addr[6], ieee_addr[5], ieee_addr[4],
-		ieee_addr[3], ieee_addr[2], ieee_addr[1], ieee_addr[0]);
-
-	// nrf_802154_extended_address_set(ieee_addr);
-
-	/* TODO: implement that */
-
-	return 0;
+	return bs_radio_rssi(duration);
 }
 
-static int nrf5_filter(struct device *dev, bool set,
-		       enum ieee802154_filter_type type,
-		       const struct ieee802154_filter *filter)
+static int filter(struct device *dev, bool set,
+		  enum ieee802154_filter_type type,
+		  const struct ieee802154_filter *filter)
 {
-	LOG_DBG("Applying filter %u", type);
+	int ret_status = -ENOTSUP;
 
 	if (!set) {
-		return -ENOTSUP;
+		return ret_status;
 	}
 
-	if (type == IEEE802154_FILTER_TYPE_IEEE_ADDR) {
-		return nrf5_set_ieee_addr(dev, filter->ieee_addr);
-	} else if (type == IEEE802154_FILTER_TYPE_SHORT_ADDR) {
-		return nrf5_set_short_addr(dev, filter->short_addr);
-	} else if (type == IEEE802154_FILTER_TYPE_PAN_ID) {
-		return nrf5_set_pan_id(dev, filter->pan_id);
+	switch (type) {
+	case IEEE802154_FILTER_TYPE_IEEE_ADDR:
+		LOG_DBG("Applying filter %s",
+			"IEEE802154_FILTER_TYPE_IEEE_ADDR");
+		memcpy(pib.ext_addr, filter->ieee_addr, 8);
+		ret_status = 0;
+		break;
+	case IEEE802154_FILTER_TYPE_SHORT_ADDR:
+		LOG_DBG("Applying filter %s",
+			"IEEE802154_FILTER_TYPE_SHORT_ADDR");
+		memcpy(pib.short_addr, &filter->short_addr, 2);
+		ret_status = 0;
+		break;
+	case IEEE802154_FILTER_TYPE_PAN_ID:
+		LOG_DBG("Applying filter %s", "IEEE802154_FILTER_TYPE_PAN_ID");
+		memcpy(pib.pan_id, &filter->pan_id, 2);
+		ret_status = 0;
+		break;
+	default:
+		LOG_INF("Filter type %u is not supported", type);
 	}
 
-	return -ENOTSUP;
+	return ret_status;
 }
 
-static int nrf5_set_txpower(struct device *dev, int16_t dbm)
+static int set_txpower(struct device *dev, int16_t dbm)
 {
 	ARG_UNUSED(dev);
 
 	LOG_DBG("%d", dbm);
+	LOG_DBG("%s", __func__);
 
-	// nrf_802154_tx_power_set(dbm);
-
-	/* TODO: implement that */
-
-	return 0;
+	return bs_radio_tx_power_set(dbm);
 }
 
-// static int handle_ack(struct nrf5_802154_data *nrf5_radio)
+// static int handle_ack(struct native_posix_802154_data *nrf5_radio)
 // {
 // 	uint8_t ack_len = nrf5_radio->ack_frame.psdu[0] - NRF5_FCS_LENGTH;
 // 	struct net_pkt *ack_pkt;
@@ -332,46 +288,53 @@ static int nrf5_set_txpower(struct device *dev, int16_t dbm)
 // 	return err;
 // }
 
-// static void nrf5_tx_started(struct device *dev,
-// 			    struct net_pkt *pkt,
-// 			    struct net_buf *frag)
-// {
-// 	ARG_UNUSED(pkt);
-
-// 	if (nrf5_data.event_handler) {
-// 		nrf5_data.event_handler(dev, IEEE802154_EVENT_TX_STARTED,
-// 					(void *)frag);
-// 	}
-// }
-
-static int nrf5_tx(struct device *dev, enum ieee802154_tx_mode mode,
-		   struct net_pkt *pkt, struct net_buf *frag)
+static void tx_started(struct device *dev, struct net_pkt *pkt,
+		       struct net_buf *frag)
 {
-	struct nrf5_802154_data *nrf5_radio = NRF5_802154_DATA(dev);
+	ARG_UNUSED(pkt);
+
+	if (nrf5_data.event_handler) {
+		nrf5_data.event_handler(dev, IEEE802154_EVENT_TX_STARTED,
+					(void *)frag);
+	}
+}
+
+static int tx(struct device *dev, enum ieee802154_tx_mode mode,
+	      struct net_pkt *pkt, struct net_buf *frag)
+{
+	struct native_posix_802154_data *native_posix_radio =
+		NATIVE_POSIX_802154_DATA(dev);
 	uint8_t payload_len = frag->len;
 	uint8_t *payload = frag->data;
-	bool ret = true;
+	int tx_result = -EIO;
 
-	LOG_DBG("%p (%u)", payload, payload_len);
+	LOG_DBG("%p (%u) %s", payload, payload_len,
+		ieee802154_is_ar_flag_set(frag) ? "ack required" : "");
 
-	nrf5_radio->tx_psdu[0] = payload_len + NRF5_FCS_LENGTH;
-	memcpy(nrf5_radio->tx_psdu + 1, payload, payload_len);
+	native_posix_radio->tx_psdu[0] = payload_len + NATIVE_POSIX_FCS_LENGTH;
+	memcpy(native_posix_radio->tx_psdu + 1, payload, payload_len);
+
+	printf("Sending following data:\n");
+	for (int i = 0; i < native_posix_radio->tx_psdu[0]; i++) {
+		printf("%d\t", native_posix_radio->tx_psdu[i + 1]);
+	}
+	printf("The end of sent packet\n");
 
 	/* Reset semaphore in case ACK was received after timeout */
-	k_sem_reset(&nrf5_radio->tx_wait);
+	k_sem_reset(&native_posix_radio->tx_wait);
 
 	switch (mode) {
 	case IEEE802154_TX_MODE_DIRECT:
-		// ret = nrf_802154_transmit_raw(nrf5_radio->tx_psdu, false);
-		/* TODO: implement that */
+		tx_result = bs_radio_tx(native_posix_radio->tx_psdu + 1,
+					native_posix_radio->tx_psdu[0], false);
 		break;
 	case IEEE802154_TX_MODE_CCA:
-		// ret = nrf_802154_transmit_raw(nrf5_radio->tx_psdu, true);
-		/* TODO: implement that */
+		tx_result = bs_radio_tx(native_posix_radio->tx_psdu + 1,
+					native_posix_radio->tx_psdu[0], true);
 		break;
 	case IEEE802154_TX_MODE_CSMA_CA:
-		// nrf_802154_transmit_csma_ca_raw(nrf5_radio->tx_psdu);
-		/* TODO: implement that */
+		tx_result = bs_radio_tx(native_posix_radio->tx_psdu + 1,
+					native_posix_radio->tx_psdu[0], true);
 		break;
 	case IEEE802154_TX_MODE_TXTIME:
 	case IEEE802154_TX_MODE_TXTIME_CCA:
@@ -380,132 +343,109 @@ static int nrf5_tx(struct device *dev, enum ieee802154_tx_mode mode,
 		return -ENOTSUP;
 	}
 
-	if (!ret) {
+	if (tx_result) {
 		LOG_ERR("Cannot send frame");
-		return -EIO;
+		return tx_result;
 	}
 
-	// nrf5_tx_started(dev, pkt, frag);	/* TODO: implement that */
+	tx_started(dev, pkt, frag);
 
-	LOG_DBG("Sending frame (ch:%d, txpower:%d)", 0, 0);
-	// nrf_802154_channel_get(), nrf_802154_tx_power_get());
+	LOG_DBG("Sending frame (freq:%d, txpower:%d)", bs_radio_frequency_get(),
+		bs_radio_tx_power_get());
 
 	/* Wait for the callback from the radio driver. */
-	k_sem_take(&nrf5_radio->tx_wait, K_FOREVER);
+	k_sem_take(&native_posix_radio->tx_wait, K_FOREVER);
+	LOG_DBG("Frame has been sent");
 
-	LOG_DBG("Result: %d", nrf5_data.tx_result);
+	/* No need to ack in this development iteration */
+	return 0;
 
-	if (nrf5_radio->tx_result /* == NRF_802154_TX_ERROR_NONE*/) {
-		if (nrf5_radio->ack_frame.psdu == NULL) {
-			/* No ACK was requested. */
-			return 0;
-		}
+	// LOG_DBG("Result: %d", nrf5_data.tx_result);
 
-		/* Handle ACK packet. */
-		// return handle_ack(nrf5_radio);
-		/* TODO: implement that */
-		return 0;
-	}
+	// if (native_posix_radio->tx_result /* == NRF_802154_TX_ERROR_NONE*/) {
+	// 	if (native_posix_radio->ack_frame.psdu == NULL) {
+	// 		/* No ACK was requested. */
+	// 		return 0;
+	// 	}
 
-	return -EIO;
-}
-
-static int nrf5_start(struct device *dev)
-{
-	ARG_UNUSED(dev);
-
-	// if (!nrf_802154_receive()) {
-	// 	LOG_ERR("Failed to enter receive state");
-	// 	return -EIO;
+	// 	/* Handle ACK packet. */
+	// 	// return handle_ack(native_posix_radio);
+	// 	/* TODO: implement that */
+	// 	return 0;
 	// }
 
-	/* TODO: implement that */
-
-	LOG_DBG("nRF5 802154 radio started (channel: %d)",
-		/* nrf_802154_channel_get() */ 0);
-
-	/* TODO: implement that */
-
-	return 0;
+	// return -EIO;
 }
 
-static int nrf5_stop(struct device *dev)
-{
-	ARG_UNUSED(dev);
-	printf("Native posix STOP\n");
-	// if (!nrf_802154_sleep()) {
-	// 	LOG_ERR("Error while stopping radio");
-	// 	return -EIO;
-	// }
-
-	LOG_DBG("nRF5 802154 radio stopped");
-
-	return 0;
-}
-
-#ifndef CONFIG_IEEE802154_NRF5_EXT_IRQ_MGMT
-// static void nrf5_radio_irq(void *arg)
-// {
-// 	ARG_UNUSED(arg);
-
-// 	// nrf_802154_radio_irq_handler();
-// }
-#endif
-
-static void nrf5_irq_config(struct device *dev)
+static int start(struct device *dev)
 {
 	ARG_UNUSED(dev);
 
-#ifndef CONFIG_IEEE802154_NRF5_EXT_IRQ_MGMT
-	// IRQ_CONNECT(RADIO_IRQn, NRF_802154_IRQ_PRIORITY,
-	// 	    nrf5_radio_irq, NULL, 0);
-	// irq_enable(RADIO_IRQn);
-#endif
-}
+	bs_radio_start(bs_radio_event_cb);
 
-static int nrf5_init(struct device *dev)
-{
-	const struct nrf5_802154_config *nrf5_radio_cfg = NRF5_802154_CFG(dev);
-	struct nrf5_802154_data *nrf5_radio = NRF5_802154_DATA(dev);
-
-	k_fifo_init(&nrf5_radio->rx_fifo);
-	k_sem_init(&nrf5_radio->tx_wait, 0, 1);
-	k_sem_init(&nrf5_radio->cca_wait, 0, 1);
-
-	// nrf_802154_init(); /* TODO: implement that */
-
-	nrf5_radio_cfg->irq_config_func(dev);
-
-	k_thread_create(&nrf5_radio->rx_thread, nrf5_radio->rx_stack,
-			/* CONFIG_IEEE802154_NRF5_RX_STACK_SIZE */ 1024,
-			nrf5_rx_thread, dev, NULL, NULL, K_PRIO_COOP(2), 0,
-			K_NO_WAIT);
-
-	k_thread_name_set(&nrf5_radio->rx_thread, "nrf5_rx");
-
-	LOG_INF("nRF5 802154 radio initialized");
+	LOG_INF("Native Posix radio started (channel: %d)",
+		bs_radio_frequency_get());
 
 	return 0;
 }
 
-static void nrf5_iface_init(struct net_if *iface)
+static int stop(struct device *dev)
+{
+	ARG_UNUSED(dev);
+	LOG_INF("Native Posix radio stopped");
+
+	bs_radio_stop();
+
+	return 0;
+}
+
+static int driver802154_init(struct device *dev)
+{
+	struct native_posix_802154_data *native_posix_radio =
+		NATIVE_POSIX_802154_DATA(dev);
+
+	k_fifo_init(&native_posix_radio->rx_fifo);
+	k_sem_init(&native_posix_radio->tx_wait, 0, 1);
+	k_sem_init(&native_posix_radio->cca_wait, 0, 1);
+
+	k_thread_create(&native_posix_radio->rx_thread,
+			native_posix_radio->rx_stack,
+			NATIVE_POSIX_IEEE802154_RX_STACK_SIZE, nrf5_rx_thread,
+			dev, NULL, NULL, K_PRIO_COOP(2), 0, K_NO_WAIT);
+
+	k_thread_name_set(&native_posix_radio->rx_thread,
+			  "native_posix 802.15.4 RX");
+
+	LOG_INF("Native Posix 802154 radio initialized");
+
+	return 0;
+}
+
+static void iface_init(struct net_if *iface)
 {
 	struct device *dev = net_if_get_device(iface);
-	struct nrf5_802154_data *nrf5_radio = NRF5_802154_DATA(dev);
+	struct ieee802154_context *ctx = net_if_l2_data(iface);
+	struct native_posix_802154_data *radio_data =
+		NATIVE_POSIX_802154_DATA(dev);
 
-	nrf5_get_eui64(nrf5_radio->mac);
-	net_if_set_link_addr(iface, nrf5_radio->mac, sizeof(nrf5_radio->mac),
-			     NET_LINK_IEEE802154);
+	bs_radio_get_mac(radio_data->mac);
+	net_if_set_link_addr(iface, radio_data->mac, 8, NET_LINK_IEEE802154);
+	ieee802154_init(iface);
 
-	nrf5_radio->iface = iface;
-
-	// ieee802154_init(iface);
+	/* Temporary solution for the ability of enabling net_if */
+	ctx->pan_id = 0xabcd;
+	ctx->channel = 26U;
+	ctx->sequence = 62U;
+	radio_data->iface = iface;
+	LOG_INF("iface Initialized");
 }
 
-static int nrf5_configure(struct device *dev, enum ieee802154_config_type type,
-			  const struct ieee802154_config *config)
+static int configure(struct device *dev, enum ieee802154_config_type type,
+		     const struct ieee802154_config *config)
 {
 	ARG_UNUSED(dev);
+
+        printf("Configure() called!\n");
 
 	// switch (type) {
 	// case IEEE802154_CONFIG_AUTO_ACK_FPB:
@@ -573,35 +513,56 @@ static int nrf5_configure(struct device *dev, enum ieee802154_config_type type,
 
 /* nRF5 radio driver callbacks */
 
-// void nrf_802154_received_timestamp_raw(uint8_t *data, int8_t power, uint8_t lqi,
-// 				       uint32_t time)
-// {
-// 	for (uint32_t i = 0; i < ARRAY_SIZE(nrf5_data.rx_frames); i++) {
-// 		if (nrf5_data.rx_frames[i].psdu != NULL) {
-// 			continue;
-// 		}
+/**
+ * This function is called on BS_RADIO_EVENT_RX_DONE event reception.
+ * 
+ * It copies the received data into the next free entry in global object of 
+ * native_posix_802154.rx_buffers.
+ *
+ * Arguments:
+ * data                   -       The data to copy.
+ * power                  -       The power of the received signal.
+ * lqi                    -       The link quality inference.
+ * time [not supported]   -       The timestamp of reception.       
+ */
+void on_rx_done(uint8_t *data, uint16_t data_len, int8_t power, uint8_t lqi,
+		uint32_t time)
+{
+	ARG_UNUSED(time);
+	const uint32_t rx_frames_size = ARRAY_SIZE(nrf5_data.rx_frames);
 
-// 		nrf5_data.rx_frames[i].psdu = data;
-// 		nrf5_data.rx_frames[i].time = time;
-// 		nrf5_data.rx_frames[i].rssi = power;
-// 		nrf5_data.rx_frames[i].lqi = lqi;
+	for (uint32_t i = 0; i < rx_frames_size; i++) {
+		if (nrf5_data.rx_frames[i].psdu != NULL) {
+			continue;
+		}
 
-// 		if (data[ACK_REQUEST_BYTE] & ACK_REQUEST_BIT) {
-// 			nrf5_data.rx_frames[i].ack_fpb =
-// 						nrf5_data.last_frame_ack_fpb;
-// 		} else {
-// 			nrf5_data.rx_frames[i].ack_fpb = false;
-// 		}
+		if (0 != rx_frame_alloc(&nrf5_data.rx_frames[i], data_len)) {
+			posix_print_warning(
+				"Not enough memory to allocate rx buffer");
+			break;
+		}
+		memcpy(nrf5_data.rx_frames[i].psdu, data, data_len);
+		// native_posix_radio_data.rx_frames[i].time = time;
+		nrf5_data.rx_frames[i].rssi = power;
+		nrf5_data.rx_frames[i].lqi = lqi;
 
-// 		nrf5_data.last_frame_ack_fpb = false;
+		// WTF TODO: investigate how it works
+		if (data[ACK_REQUEST_BYTE] & ACK_REQUEST_BIT) {
+			nrf5_data.rx_frames[i].ack_fpb =
+				nrf5_data.last_frame_ack_fpb;
+		} else {
+			nrf5_data.rx_frames[i].ack_fpb = false;
+		}
 
-// 		k_fifo_put(&nrf5_data.rx_fifo, &nrf5_data.rx_frames[i]);
+		nrf5_data.last_frame_ack_fpb = false;
 
-// 		return;
-// 	}
+		k_fifo_put(&nrf5_data.rx_fifo, &nrf5_data.rx_frames[i]);
 
-// 	__ASSERT(false, "Not enough rx frames allocated for 15.4 driver");
-// }
+		return;
+	}
+
+	__ASSERT(false, "Not enough rx frames allocated for 15.4 driver");
+}
 
 // void nrf_802154_receive_failed(nrf_802154_rx_error_t error)
 // {
@@ -677,45 +638,89 @@ static int nrf5_configure(struct device *dev, enum ieee802154_config_type type,
 // 	}
 // }
 
-static const struct nrf5_802154_config nrf5_radio_cfg = {
-	.irq_config_func = nrf5_irq_config,
+static void bs_radio_event_cb(struct bs_radio_event_data *event_data)
+{
+	switch (event_data->type) {
+	case BS_RADIO_EVENT_TX_DONE:
+		LOG_DBG("BS_RADIO_EVENT_TX_DONE");
+		k_sem_give(&nrf5_data.tx_wait);
+		break;
+	case BS_RADIO_EVENT_TX_FAILED:
+		LOG_DBG("BS_RADIO_EVENT_TX_FAILED");
+		k_sem_give(&nrf5_data.tx_wait);
+		/* TODO: Get power, lqi, timeout */
+		break;
+	case BS_RADIO_EVENT_RX_DONE:
+		LOG_DBG("BS_RADIO_EVENT_RX_DONE");
+		for (int i = 0; i < event_data->rx_done.len; i++) {
+			printf("%u\t", event_data->rx_done.data[i]);
+		}
+		printf("\nThe end of received frame\n");
+		on_rx_done(event_data->rx_done.data, event_data->rx_done.len, 0,
+			   0, 0);
+		break;
+	case BS_RADIO_EVENT_RX_FAILED:
+		LOG_DBG("BS_RADIO_RSSI_RX_FAILED");
+		break;
+	case BS_RADIO_EVENT_CCA_DONE:
+		LOG_DBG("BS_RADIO_EVENT_CCA_DONE");
+		break;
+	case BS_RADIO_EVENT_CCA_FAILED:
+		LOG_DBG("BS_RADIO_EVENT_CCA_FAILED");
+		break;
+	case BS_RADIO_EVENT_RSSI_DONE:
+		LOG_DBG("BS_RADIO_EVENT_RSSI_DONE");
+		break;
+	case BS_RADIO_EVENT_RSSI_FAILED:
+		LOG_DBG("BS_RADIO_EVENT_RSSI_FAILED");
+		break;
+	}
+}
+
+static int rx_frame_alloc(struct native_posix_802154_rx_frame *rx_frame,
+			  uint16_t psdu_len)
+{
+	uint8_t *buf = malloc(psdu_len * sizeof(*rx_frame->psdu));
+
+	if (buf == NULL) {
+		return -ENOMEM;
+	}
+
+	rx_frame->psdu = buf;
+	return 0;
+}
+
+static void rx_frame_free(struct native_posix_802154_rx_frame *rx_frame)
+{
+	free(rx_frame->psdu);
+	rx_frame->psdu = NULL;
+	rx_frame->psdu_len = 0;
+}
+
+static struct ieee802154_radio_api native_posix_radio_api = {
+	.iface_api.init = iface_init,
+	.get_capabilities = get_caps,
+	.cca = cca,
+	.set_channel = set_channel,
+	.filter = filter,
+	.set_txpower = set_txpower,
+	.start = start,
+	.stop = stop,
+	.tx = tx,
+	.ed_scan = energy_scan_start,
+	.configure = configure,
 };
 
-static struct ieee802154_radio_api nrf5_radio_api = {
-	.iface_api = {
-		.init = nrf5_iface_init,
-	},
-	.get_capabilities = nrf5_get_capabilities,
-	.cca = nrf5_cca,
-	.set_channel = nrf5_set_channel,
-	.filter = nrf5_filter,
-	.set_txpower = nrf5_set_txpower,
-	.start = nrf5_start,
-	.stop = nrf5_stop,
-	.tx = nrf5_tx,
-	.ed_scan = nrf5_energy_scan_start,
-	.configure = nrf5_configure,
-};
-
-// #if defined(CONFIG_NET_L2_IEEE802154)
-// #define L2 IEEE802154_L2
-// #define L2_CTX_TYPE NET_L2_GET_CTX_TYPE(IEEE802154_L2)
-// #define MTU 125
-// #elif defined(CONFIG_NET_L2_OPENTHREAD)
-// #define L2 OPENTHREAD_L2
-// #define L2_CTX_TYPE NET_L2_GET_CTX_TYPE(OPENTHREAD_L2)
-// #define MTU 1280
-// #endif
-
-// #if defined(CONFIG_NET_L2_IEEE802154) || defined(CONFIG_NET_L2_OPENTHREAD)
-// NET_DEVICE_INIT(native_posix_802154_radio,
-// 		CONFIG_IEEE802154_NATIVE_POSIX_DRV_NAME, nrf5_init,
-// 		device_pm_control_nop, &nrf5_data, &nrf5_radio_cfg,
-// 		80, &nrf5_radio_api, L2,
-// 		L2_CTX_TYPE, MTU);
-// #else
+#if defined(CONFIG_NET_L2_IEEE802154) || defined(CONFIG_NET_L2_OPENTHREAD)
+NET_DEVICE_INIT(native_posix_802154_radio,
+		CONFIG_IEEE802154_NATIVE_POSIX_DRV_NAME, driver802154_init,
+		device_pm_control_nop, &nrf5_data, NULL,
+		CONFIG_KERNEL_INIT_PRIORITY_DEFAULT, &native_posix_radio_api,
+		IEEE802154_L2, NET_L2_GET_CTX_TYPE(IEEE802154_L2), 125);
+#else
 DEVICE_AND_API_INIT(native_posix_802154_radio,
-		    CONFIG_IEEE802154_NATIVE_POSIX_DRV_NAME, nrf5_init,
-		    &nrf5_data, &nrf5_radio_cfg, POST_KERNEL, 80,
-		    &nrf5_radio_api);
-// #endif
+		    CONFIG_IEEE802154_NATIVE_POSIX_DRV_NAME, driver802154_init,
+		    &nrf5_data, NULL, POST_KERNEL,
+		    CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
+		    &native_posix_radio_api);
+#endif
