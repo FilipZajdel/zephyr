@@ -49,6 +49,7 @@ struct bs_radio_event_data {
 		struct {
 			uint16_t len;
 			uint8_t *data;
+			int8_t rssi;
 		} rx_done;
 
 		struct {
@@ -73,10 +74,10 @@ int bs_radio_tx(uint8_t *data, uint16_t data_len, bool cca);
 int bs_radio_rssi(uint64_t duration_us);
 
 int bs_radio_cca(void);
-int bs_radio_frequency_set(uint16_t freq);
-uint16_t bs_radio_frequency_get(void);
-int bs_radio_tx_power_set(uint16_t power_dBm);
-uint16_t bs_radio_tx_power_get(void);
+int bs_radio_channel_set(uint16_t channel);
+uint16_t bs_radio_channel_get(void);
+int bs_radio_tx_power_set(int8_t power_dBm);
+int8_t bs_radio_tx_power_get(void);
 
 void bs_radio_get_mac(uint8_t *mac);
 

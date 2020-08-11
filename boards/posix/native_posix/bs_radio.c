@@ -43,9 +43,10 @@ static uint64_t last_phy_sync_time;
 static enum bs_radio_states radio_state;
 static struct radio_config radio_config;
 static uint8_t rx_buf[RX_TX_BUF_SIZE];
-static uint8_t tx_buf[RX_TX_BUF_SIZE];
+p2G4_rx_done_t rx_done_s;
+static uint8_t ongoing_tx_buf[RX_TX_BUF_SIZE];
 static uint16_t rx_len;
-static uint16_t tx_len;
+static uint16_t ongoing_tx_len;
 static bool is_running;
 static uint8_t device_eui64[8];
 
@@ -98,10 +99,10 @@ void bs_radio_init(void)
 	radio_config.channel = 0;
 	radio_config.tx_power = 0;
 	rx_len = 0;
-	tx_len = 0;
+	ongoing_tx_len = 0;
 	is_running = false;
 	memset(rx_buf, 0, RX_TX_BUF_SIZE);
-	memset(tx_buf, 0, RX_TX_BUF_SIZE);
+	memset(ongoing_tx_buf, 0, RX_TX_BUF_SIZE);
 
 	args = bs_radio_argparse_get();
 	if (args->is_bsim) {
@@ -135,9 +136,13 @@ void bs_radio_start(bs_radio_event_cb_t event_cb)
 		return;
 	}
 
+	if (!event_cb) {
+		bs_trace_error("Event callback cannot be NULL!\n");
+		return;
+	}
+
 	is_running = true;
 	radio_event_cb = event_cb;
-
 	bs_radio_timer = hwm_get_time() + RADIO_SAMPLING_INTERVAL;
 	hwm_find_next_timer();
 }
@@ -159,43 +164,54 @@ void bs_radio_stop()
 }
 
 /**
- * Set the frequency of the radio.
+ * Set the channel that radio operates on.s
  * 
  * Arguments:
- * freq         - a frequency that radio will operate on
+ * channel         - a channel that radio will operate on
  * 
  * Returns:
  * 0            -  Success
- * negative     -  Frequency couldn't be set (radio is busy)
+ * negative     -  Channel couldn't be set (radio is busy)
  */
-int bs_radio_frequency_set(uint16_t freq)
+int bs_radio_channel_set(uint16_t channel)
 {
 	if (radio_state != RADIO_STATE_RX_IDLE) {
-		bs_trace_warning("Channel can't be set during ongoing "
-				 "operation\n");
+		bs_trace_warning(
+			"Frequency can't be set during an ongoing operation\n");
 		return -1;
 	}
 
-	radio_config.channel = freq;
+	/* 11 - 26 channels, incrementing 5MHz each */
+	channel = ((channel - 10) * 5);
+	channel <<= 8;
+	channel &= 0xFF00;
+	radio_config.channel = channel;
+
 	return 0;
 }
 
-uint16_t bs_radio_frequency_get(void)
+uint16_t bs_radio_channel_get(void)
 {
-	return radio_config.channel;
+	uint16_t channel;
+
+	channel = (radio_config.channel >> 8) & 0xFF;
+	channel /= 5;
+	channel += 10;
+
+	return channel;
 }
 
 /**
  * Set the transmissing power.
  * 
  * Arguments:
- * power_dBm    -    The value of tx power in dBm
+ * power_dBm    -    The value of tx power expressed in dBm
  * 
  * Returns:
  * 0            -    Success
  * negative     -    The power couldn't be set (radio is busy)
  */
-int bs_radio_tx_power_set(uint16_t power_dBm)
+int bs_radio_tx_power_set(int8_t power_dBm)
 {
 	if (radio_state != RADIO_STATE_RX_IDLE) {
 		bs_trace_warning("TX Power can't be set during "
@@ -203,14 +219,16 @@ int bs_radio_tx_power_set(uint16_t power_dBm)
 		return -1;
 	}
 
-	radio_config.tx_power = power_dBm;
+	((uint8_t *)&radio_config.tx_power)[1] = power_dBm;
+	((uint8_t *)&radio_config.tx_power)[0] = 0;
+
 	return 0;
 }
 
 /** Returns current setting of tx power */
-uint16_t bs_radio_tx_power_get(void)
+int8_t bs_radio_tx_power_get(void)
 {
-	return radio_config.tx_power;
+	return (radio_config.tx_power >> 8) & 0xFF;
 }
 
 /**
@@ -269,37 +287,40 @@ void bs_radio_triggered(void)
 			bs_trace_debug(0, "Im going from `RX_IDLE` to `RX`\n");
 			radio_state = RADIO_STATE_RX;
 			bs_radio_timer = last_rx_try_end;
-			// hwm_find_next_timer();
 		} else {
 			radio_state = RADIO_STATE_RX_IDLE;
-			bs_radio_timer =
-				last_rx_try_end + 1;// + RADIO_SAMPLING_INTERVAL;
-			// hwm_find_next_timer();
+			bs_radio_timer = last_rx_try_end +
+					 1; // + RADIO_SAMPLING_INTERVAL;
 		}
 		break;
 	}
 	case RADIO_STATE_RX:
 		if (current_time >= last_rx_try_end) {
 			/* Now we can say that the data is received */
-			struct bs_radio_event_data
-				rx_event_data = { .type = BS_RADIO_EVENT_RX_DONE,
-						  .rx_done = {
-							  .len = rx_len,
-							  .data = rx_buf,
-						  } };
-			radio_event_cb(&rx_event_data);
+			struct bs_radio_event_data rx_event_data = {
+				.type = BS_RADIO_EVENT_RX_DONE,
+				.rx_done = { .len = rx_len,
+					     .data = rx_buf,
+					     .rssi = ((int8_t *)&rx_done_s.rssi
+							      .RSSI)[1] }
+			};
+			// radio_event_cb(&rx_event_data);
+			// memset(rx_buf, 0, RX_TX_BUF_SIZE);
+			// rx_len = 0;
 
 			bs_trace_debug(0, "Im going from `RX` to `RX_IDLE`\n");
 			radio_state = RADIO_STATE_RX_IDLE;
 			bs_radio_timer = current_time + RADIO_SAMPLING_INTERVAL;
-			// hwm_find_next_timer();
 			last_rx_try_end = NEVER;
+
+			radio_event_cb(&rx_event_data);
+			memset(rx_buf, 0, RX_TX_BUF_SIZE);
+			rx_len = 0;
 		} else {
 			bs_trace_warning(
 				"Bad state, it shouldn't have happened\n");
 			radio_state = RADIO_STATE_RX_IDLE;
 			bs_radio_timer = NEVER;
-			// hwm_find_next_timer();
 		}
 		break;
 	case RADIO_STATE_TX_PREPARE:
@@ -310,10 +331,8 @@ void bs_radio_triggered(void)
 			bs_trace_debug(0, "After data send\n");
 			radio_state = RADIO_STATE_TX;
 			bs_radio_timer = last_tx_end;
-			// hwm_find_next_timer();
 		} else {
 			bs_radio_timer = last_phy_sync_time;
-			// hwm_find_next_timer();
 		}
 		break;
 	case RADIO_STATE_TX:
@@ -325,18 +344,18 @@ void bs_radio_triggered(void)
 				.type = BS_RADIO_EVENT_TX_DONE,
 			};
 			radio_event_cb(&tx_event_data);
+			memset(ongoing_tx_buf, 0, RX_TX_BUF_SIZE);
+			ongoing_tx_len = 0;
 
 			bs_trace_debug(0, "Im going from `TX` to `RX_IDLE`\n");
 			radio_state = RADIO_STATE_RX_IDLE;
 			last_tx_end = NEVER;
 			bs_radio_timer = current_time + RADIO_TX_INTERVAL;
-			// hwm_find_next_timer();
 		} else {
 			bs_trace_warning(
 				"Bad state, it shouldn't have happened\n");
 			radio_state = RADIO_STATE_RX_IDLE;
 			bs_radio_timer = NEVER;
-			// hwm_find_next_timer();
 		}
 	default:
 		break;
@@ -344,7 +363,7 @@ void bs_radio_triggered(void)
 }
 
 /**
- * Start the transmission.
+ * Starts the transmission.
  * 
  * If the device is not currently receiving or transmitting,
  * it will send data. Otherwise it will return with error.
@@ -385,8 +404,8 @@ int bs_radio_tx(uint8_t *data, uint16_t data_len, bool cca)
 	bs_trace_debug(0, "Im going from `RX_IDLE` to `TX_PREPARE`\n");
 	radio_state = RADIO_STATE_TX_PREPARE;
 
-	tx_len = data_len;
-	memcpy(tx_buf, data, data_len);
+	ongoing_tx_len = data_len;
+	memcpy(ongoing_tx_buf, data, data_len);
 
 	bs_radio_timer = hwm_get_time() + RADIO_TX_INTERVAL;
 	hwm_find_next_timer();
@@ -465,7 +484,6 @@ void bs_radio_get_mac(uint8_t *mac)
 static int try_receive(uint32_t scan_duration, uint64_t *end_time)
 {
 	int ret;
-	p2G4_rx_done_t rx_done_s;
 	uint8_t *frame = NULL;
 	char status_buf[20];
 
@@ -477,6 +495,9 @@ static int try_receive(uint32_t scan_duration, uint64_t *end_time)
 	ongoing_rx.start_time = hwm_get_time();
 	ongoing_rx.scan_duration = scan_duration;
 
+	rx_done_s.status = P2G4_RXSTATUS_NOSYNC;
+	rx_done_s.packet_size = 0;
+
 	ret = p2G4_dev_req_rx_c_b(&ongoing_rx, &rx_done_s, &frame, 0, NULL);
 	*end_time = rx_done_s.end_time;
 	last_phy_sync_time = rx_done_s.end_time;
@@ -486,15 +507,16 @@ static int try_receive(uint32_t scan_duration, uint64_t *end_time)
 		rx_len = rx_done_s.packet_size;
 		free(frame);
 		bs_trace_debug(0, "RX status: %s\n",
-		       rx_status_to_str(rx_done_s.status, status_buf));
+			       rx_status_to_str(rx_done_s.status, status_buf));
 		return 0;
 	}
 
+	free(frame);
 	return -1;
 }
 
 /**
- * Send data from tx_buf of tx_len bytes
+ * Send data from ongoing_tx_buf of ongoing_tx_len bytes
  * 
  * Arguments:
  * start_time     - When the transmission will start
@@ -507,13 +529,13 @@ static void send_data(uint64_t tx_start_time, uint64_t *end_time)
 
 	ongoing_tx.radio_params.center_freq = radio_config.channel;
 	ongoing_tx.power_level = radio_config.tx_power;
-	ongoing_tx.packet_size = tx_len;
+	ongoing_tx.packet_size = ongoing_tx_len;
 	ongoing_tx.start_time = tx_start_time;
-	ongoing_tx.end_time =
-		ongoing_tx.start_time + packet_bitlen(tx_len, RX_TX_BPS);
+	ongoing_tx.end_time = ongoing_tx.start_time +
+			      packet_bitlen(ongoing_tx_len, RX_TX_BPS);
 	bs_trace_debug(0, "Data tx end time: %llu\n", ongoing_tx.end_time);
 
-	result = p2G4_dev_req_tx_c_b(&ongoing_tx, tx_buf, &tx_done_s);
+	result = p2G4_dev_req_tx_c_b(&ongoing_tx, ongoing_tx_buf, &tx_done_s);
 
 	*end_time = ongoing_tx.end_time;
 	last_phy_sync_time = ongoing_tx.end_time;
@@ -534,8 +556,8 @@ static void fill_eui64(void)
 	for (int i = 2; i < 8; i++) {
 		device_eui64[i] = 0xFF;
 	}
-	device_eui64[1] = (uint8_t)((args->device_nbr >> 8) && 0xFF);
-	device_eui64[0] = (uint8_t)(args->device_nbr && 0xFF);
+	device_eui64[1] = (uint8_t)((args->device_nbr >> 8));
+	device_eui64[0] = (uint8_t)(args->device_nbr);
 }
 
 static char *rx_status_to_str(uint8_t status, char *buf)

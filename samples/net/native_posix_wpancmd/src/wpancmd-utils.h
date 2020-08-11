@@ -17,6 +17,7 @@ enum wpanusb_requests {
 	SET_PAN_ID,
 	SET_IEEE_ADDR,
 	SET_TXPOWER,
+	GET_TXPOWER,
 	SHUT_DOWN,
     HELP
 };

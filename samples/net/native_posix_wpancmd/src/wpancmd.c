@@ -40,6 +40,17 @@ static int set_channel(void *data, int len)
 	return radio_api->set_channel(ieee802154_dev, channel);
 }
 
+static int set_tx_power(void *data, int len)
+{
+	if (len <= 0) {
+		return -EINVAL;
+	}
+
+	int8_t power_bBm = atoi(data);
+	printk("Setting the power to %d dBm\n", power_bBm);
+	return radio_api->set_txpower(ieee802154_dev, power_bBm);
+}
+
 static int set_ieee_addr(void *data, int len)
 {
 	struct set_ieee_addr *req = data;
@@ -167,7 +178,7 @@ static void tx_thread(void)
 
 		k_msleep(250);
 
-                /* Wait for user input 
+		/* Wait for user input 
                  * Note that time spent waiting in this function is detached
                  * from simulation time - simulation is stuck at this moment.
                  */
@@ -220,6 +231,9 @@ static void tx_thread(void)
 		case SET_PAN_ID:
 			set_pan_id(cmd_buf + args_idx, args_len);
 			break;
+		case SET_TXPOWER:
+			set_tx_power(cmd_buf + args_idx, args_len);
+			break;
 		case SHUT_DOWN:
 			stop();
 			posix_exit(0);
@@ -230,7 +244,7 @@ static void tx_thread(void)
 
 		k_yield();
 		free(cmd_buf);
-		printk("Insert command:\n");
+		printk("Insert command >>\n");
 	}
 }
 
