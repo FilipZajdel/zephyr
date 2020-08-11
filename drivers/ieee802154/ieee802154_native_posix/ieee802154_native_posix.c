@@ -107,7 +107,7 @@ static void nrf5_rx_thread(void *arg1, void *arg2, void *arg3)
 
 		__ASSERT_NO_MSG(pkt_len <= CONFIG_NET_BUF_DATA_SIZE);
 
-		LOG_INF("Frame received: len (%d)", rx_frame->psdu[0]);
+		LOG_INF("Frame received: packet len (%d)", pkt_len);
 
 		pkt = net_pkt_alloc_with_buffer(native_posix_radio->iface,
 						pkt_len, AF_UNSPEC, 0,
@@ -239,48 +239,44 @@ static int set_txpower(struct device *dev, int16_t dbm)
 	return bs_radio_tx_power_set(dbm);
 }
 
-// static int handle_ack(struct native_posix_802154_data *nrf5_radio)
-// {
-// 	uint8_t ack_len = nrf5_radio->ack_frame.psdu[0] - NRF5_FCS_LENGTH;
-// 	struct net_pkt *ack_pkt;
-// 	int err = 0;
+static int handle_ack(struct native_posix_802154_data *nrf5_radio)
+{
+	uint8_t ack_len = nrf5_radio->ack_frame.psdu[0] - NATIVE_POSIX_FCS_LENGTH;
+	struct net_pkt *ack_pkt;
+	int err = 0;
 
-// 	ack_pkt = net_pkt_alloc_with_buffer(nrf5_radio->iface, ack_len,
-// 					    AF_UNSPEC, 0, K_NO_WAIT);
-// 	if (!ack_pkt) {
-// 		LOG_ERR("No free packet available.");
-// 		err = -ENOMEM;
-// 		goto free_nrf_ack;
-// 	}
+	ack_pkt = net_pkt_alloc_with_buffer(nrf5_radio->iface, ack_len,
+					    AF_UNSPEC, 0, K_NO_WAIT);
+	if (!ack_pkt) {
+		LOG_ERR("No free packet available.");
+		err = -ENOMEM;
+		goto free_nrf_ack;
+	}
 
-// 	/* Upper layers expect the frame to start at the MAC header, skip the
-// 	 * PHY header (1 byte).
-// 	 */
-// 	if (net_pkt_write(ack_pkt, nrf5_radio->ack_frame.psdu + 1,
-// 			  ack_len) < 0) {
-// 		LOG_ERR("Failed to write to a packet.");
-// 		err = -ENOMEM;
-// 		goto free_net_ack;
-// 	}
+	/* Upper layers expect the frame to start at the MAC header, skip the
+	 * PHY header (1 byte).
+	 */
+	if (net_pkt_write(ack_pkt, nrf5_radio->ack_frame.psdu + 1,
+			  ack_len) < 0) {
+		LOG_ERR("Failed to write to a packet.");
+		err = -ENOMEM;
+		goto free_net_ack;
+	}
 
-// 	net_pkt_set_ieee802154_lqi(ack_pkt, nrf5_radio->ack_frame.lqi);
-// 	net_pkt_set_ieee802154_rssi(ack_pkt, nrf5_radio->ack_frame.rssi);
+	net_pkt_set_ieee802154_lqi(ack_pkt, nrf5_radio->ack_frame.lqi);
+	net_pkt_set_ieee802154_rssi(ack_pkt, nrf5_radio->ack_frame.rssi);
 
-// 	net_pkt_cursor_init(ack_pkt);
+	net_pkt_cursor_init(ack_pkt);
 
-// 	if (ieee802154_radio_handle_ack(nrf5_radio->iface, ack_pkt) != NET_OK) {
-// 		LOG_INF("ACK packet not handled - releasing.");
-// 	}
+free_net_ack:
+	net_pkt_unref(ack_pkt);
 
-// free_net_ack:
-// 	net_pkt_unref(ack_pkt);
+free_nrf_ack:
+	rx_frame_free(&nrf5_radio->ack_frame);
+	nrf5_radio->ack_frame.psdu = NULL;
 
-// free_nrf_ack:
-// 	nrf_802154_buffer_free_raw(nrf5_radio->ack_frame.psdu);
-// 	nrf5_radio->ack_frame.psdu = NULL;
-
-// 	return err;
-// }
+	return err;
+}
 
 static void tx_started(struct device *dev, struct net_pkt *pkt,
 		       struct net_buf *frag)
@@ -301,18 +297,20 @@ static int tx(struct device *dev, enum ieee802154_tx_mode mode,
 	uint8_t payload_len = frag->len;
 	uint8_t *payload = frag->data;
 	int tx_result = -EIO;
+	bool ar_set;
 
-	LOG_DBG("%p (%u) %s", payload, payload_len,
-		ieee802154_is_ar_flag_set(frag) ? "ack required" : "");
-
+	rx_frame_free(&native_posix_radio->ack_frame);
+	native_posix_radio->ack_frame.psdu = NULL;
 	native_posix_radio->tx_psdu[0] = payload_len + NATIVE_POSIX_FCS_LENGTH;
 	memcpy(native_posix_radio->tx_psdu + 1, payload, payload_len);
+	ar_set = nrf_802154_frame_parser_ar_bit_is_set(
+		native_posix_radio->tx_psdu);
 
 	printf("Sending following data:\n");
 	for (int i = 0; i < native_posix_radio->tx_psdu[0]; i++) {
-		printf("%d\t", native_posix_radio->tx_psdu[i + 1]);
+		printf("%x\t", native_posix_radio->tx_psdu[i + 1]);
 	}
-	printf("The end of sent packet\n");
+	printf("\nThe end of sent packet\n");
 
 	/* Reset semaphore in case ACK was received after timeout */
 	k_sem_reset(&native_posix_radio->tx_wait);
@@ -347,28 +345,23 @@ static int tx(struct device *dev, enum ieee802154_tx_mode mode,
 	LOG_DBG("Sending frame (freq:%d, txpower:%d)", bs_radio_frequency_get(),
 		bs_radio_tx_power_get());
 
-	/* Wait for the callback from the radio driver. */
-	k_sem_take(&native_posix_radio->tx_wait, K_FOREVER);
-	LOG_DBG("Frame has been sent");
+	if (!ar_set) {
+		/* No ack requested */
+		k_sem_take(&native_posix_radio->tx_wait, K_FOREVER);
+		LOG_DBG("Frame has been sent");
+		return 0;
+	} else {
+		/* Waiting for ack */
+		k_sem_take(&native_posix_radio->tx_wait,
+			   K_USEC(NRF_802154_ACK_TIMEOUT_DEFAULT_TIMEOUT));
+	}
+	
+	if (native_posix_radio->ack_frame.psdu == NULL) {
+		/* Ack was not received. */
+		return -EFAULT;
+	}
 
-	/* No need to ack in this development iteration */
-	return 0;
-
-	// LOG_DBG("Result: %d", nrf5_data.tx_result);
-
-	// if (native_posix_radio->tx_result /* == NRF_802154_TX_ERROR_NONE*/) {
-	// 	if (native_posix_radio->ack_frame.psdu == NULL) {
-	// 		/* No ACK was requested. */
-	// 		return 0;
-	// 	}
-
-	// 	/* Handle ACK packet. */
-	// 	// return handle_ack(native_posix_radio);
-	// 	/* TODO: implement that */
-	// 	return 0;
-	// }
-
-	// return -EIO;
+	return handle_ack(native_posix_radio);
 }
 
 static int start(struct device *dev)
@@ -403,6 +396,7 @@ static int driver802154_init(struct device *dev)
 	k_sem_init(&native_posix_radio->cca_wait, 0, 1);
 
 	nrf_802154_ack_data_init();
+	nrf_802154_ack_generator_init();
 	nrf_802154_pib_init();
 
 	k_thread_create(&native_posix_radio->rx_thread,
@@ -412,6 +406,7 @@ static int driver802154_init(struct device *dev)
 
 	k_thread_name_set(&native_posix_radio->rx_thread,
 			  "native_posix 802.15.4 RX");
+	native_posix_radio->ack_frame.psdu = NULL;
 
 	LOG_INF("Native Posix 802154 radio initialized");
 
@@ -521,13 +516,35 @@ static int configure(struct device *dev, enum ieee802154_config_type type,
  * data                   -       Received data.
  * power                  -       The power of the received signal.
  * lqi                    -       The link quality inference.
- * time [not supported]   -       The timestamp of reception.       
+ * time [not supported]   -       The timestamp of reception.      
  */
 void on_rx_done(uint8_t *data, uint16_t data_len, int8_t power, uint8_t lqi,
-		uint32_t time)
+		    uint32_t time)
 {
 	ARG_UNUSED(time);
 	const uint32_t rx_frames_size = ARRAY_SIZE(nrf5_data.rx_frames);
+
+	/** TODO: remove this ugly buf, unify frames passing */
+	uint8_t buf[128];
+	memcpy(buf+1, data, data_len);
+	buf[0] = data_len;
+
+	if(FRAME_TYPE_ACK == nrf_802154_frame_parser_frame_type_get(buf)) {
+		
+		if (0 != rx_frame_alloc(&nrf5_data.ack_frame, data_len+1)) {
+			posix_print_warning(
+				"Not enough memory to allocate rx buffer");
+			return;
+		}
+
+		memcpy(nrf5_data.ack_frame.psdu + 1, data, data_len);
+		nrf5_data.ack_frame.psdu[0] = data_len;
+		nrf5_data.ack_frame.time = time;
+		nrf5_data.ack_frame.rssi = power;
+		nrf5_data.ack_frame.lqi = lqi;
+
+		return;
+	}
 
 	for (uint32_t i = 0; i < rx_frames_size; i++) {
 		if (nrf5_data.rx_frames[i].psdu != NULL) {
@@ -536,10 +553,10 @@ void on_rx_done(uint8_t *data, uint16_t data_len, int8_t power, uint8_t lqi,
 
 		LOG_INF("on_rx_done -> len (%u)", data_len);
 		for (int i = 0; i < data_len; i++) {
-			printf("%u\t", data[i]);
+			printf("%x\t", data[i]);
 		}
 
-		if (0 != rx_frame_alloc(&nrf5_data.rx_frames[i], data_len)) {
+		if (0 != rx_frame_alloc(&nrf5_data.rx_frames[i], data_len+1)) {
 			posix_print_warning(
 				"Not enough memory to allocate rx buffer");
 			break;
@@ -647,7 +664,7 @@ static void bs_radio_event_cb(struct bs_radio_event_data *event_data)
 	switch (event_data->type) {
 	case BS_RADIO_EVENT_TX_DONE:
 		LOG_DBG("BS_RADIO_EVENT_TX_DONE");
-		k_sem_give(&nrf5_data.tx_wait);
+		// k_sem_give(&nrf5_data.tx_wait);
 		break;
 	case BS_RADIO_EVENT_TX_FAILED:
 		LOG_DBG("BS_RADIO_EVENT_TX_FAILED");
@@ -659,11 +676,25 @@ static void bs_radio_event_cb(struct bs_radio_event_data *event_data)
 		LOG_INF("Received frame (%d) with rssi: %d",
 			event_data->rx_done.len, event_data->rx_done.rssi);
 
-		on_rx_done(event_data->rx_done.data, event_data->rx_done.len,
-			   event_data->rx_done.rssi, 0, 0);
-		if (1) {
-			uint8_t data[] = { 0xDE, 0xAD, 0x00, 0xBE, 0xEF };
-			send_ack_response(data, ARRAY_SIZE(data));
+		/** TODO: This ugly buffer must be deleted */
+		uint8_t temp_buf[128];
+		memcpy(temp_buf + 1, event_data->rx_done.data,
+		       event_data->rx_done.len);
+		temp_buf[0] = event_data->rx_done.len;
+
+		bool ar_set = nrf_802154_frame_parser_ar_bit_is_set(temp_buf);
+		LOG_INF("AR BIT is %sset", ar_set ? "" : "not ");
+		if (ar_set && nrf_802154_pib_auto_ack_get()) {
+			uint8_t *ack_frame =
+				nrf_802154_ack_generator_create(temp_buf);
+			send_ack_response(ack_frame + 1, ack_frame[0]);
+		}
+
+		on_rx_done(event_data->rx_done.data,
+					    event_data->rx_done.len,
+					    event_data->rx_done.rssi, 0, 0);
+		if (FRAME_TYPE_ACK == nrf_802154_frame_parser_frame_type_get(temp_buf)) {
+			k_sem_give(&nrf5_data.tx_wait);
 		}
 		break;
 	case BS_RADIO_EVENT_RX_FAILED:

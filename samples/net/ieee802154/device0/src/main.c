@@ -40,17 +40,29 @@ static int tx(struct net_pkt *pkt)
 	return ret;
 }
 
-static int net_pkt_fill(struct net_pkt **pkt, uint8_t *bytes, uint8_t len)
+/** Fill the packet with the data
+ * 
+ * Arguments:
+ * pkt		-	The pointer that pkt will be allocated on
+ * psdu		-	The data that pkt will be filled with. psdu[0] must 
+ * 				be the data length
+ * 
+ * Returns:
+ * 0		-	Success
+ * Negative - 	Failure
+ */
+static int net_pkt_fill(struct net_pkt **pkt, uint8_t *psdu)
 {
-	/* Maximum 2 bytes are added to the len */
-	*pkt = net_pkt_alloc_with_buffer(NULL, len + 2, AF_UNSPEC, 0,
+	uint8_t packet_len = psdu[0];
+	
+	*pkt = net_pkt_alloc_with_buffer(NULL, packet_len, AF_UNSPEC, 0,
 					 K_NO_WAIT);
 	if (!(*pkt)) {
 		return -ENOMEM;
 	}
 
-	net_pkt_write(*pkt, bytes, len);
-	printk("pkt %p len %u\n", *pkt, len);
+	net_pkt_write(*pkt, psdu, packet_len);
+	printk("pkt %p len %u\n", *pkt, packet_len);
 	return 0;
 }
 
@@ -192,20 +204,21 @@ static void send_frames(frame_any_t *frames[], int nframes)
 {
 	for (int i = 0; i < nframes; i++) {
 		int tx_status;
-		int frame_len;
-		uint8_t tx_data[127];
+		uint8_t tx_data[128];
 		struct net_pkt *netpkt;
 		struct net_buf *netbuf;
 
-		frame_len = frame_to_bytes(frames[i], tx_data);
+		tx_data[0] = (uint8_t)frame_to_bytes(frames[i], &tx_data[1]);
+		printk("tx_data[0] %d\n", tx_data[0]);
 
-		net_pkt_fill(&netpkt, tx_data, frame_len); 
+		net_pkt_fill(&netpkt, tx_data);
 		netbuf = net_buf_frag_last(netpkt->buffer);
 		net_pkt_hexdump(netpkt, ">");
 		tx_status = tx(netpkt);
 		net_pkt_unref(netpkt);
 
-		printf ("Frame transmission %s\n", !tx_status ? "succeded" : "failed");
+		printf("Frame transmission %s\n",
+		       !tx_status ? "succeded" : "failed");
 		k_msleep(1000);
 	}
 }

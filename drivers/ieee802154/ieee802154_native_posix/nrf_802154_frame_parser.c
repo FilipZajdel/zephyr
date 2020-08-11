@@ -523,6 +523,12 @@ uint8_t nrf_802154_frame_parser_ie_header_offset_get(const uint8_t * p_frame)
  * @section Get functions
  **************************************************************************************************/
 
+int nrf_802154_frame_parser_frame_type_get(const uint8_t * p_frame)
+{
+    uint8_t frame_type = (p_frame[FRAME_TYPE_OFFSET] & FRAME_TYPE_MASK);
+    return frame_type;
+}
+
 const uint8_t * nrf_802154_frame_parser_dst_addr_get(const uint8_t * p_frame,
                                                      bool          * p_dst_addr_extended)
 {

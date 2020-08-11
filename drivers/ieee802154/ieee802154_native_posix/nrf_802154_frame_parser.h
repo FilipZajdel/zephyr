@@ -57,6 +57,16 @@ typedef struct
 } nrf_802154_frame_parser_mhr_data_t;
 
 /**
+ * @brief Gets the frame type.
+ *
+ * @param[in]   p_frame   Pointer to a frame to be checked.
+ *
+ * @returns   -1 if frame type cannot be obtained
+ * @returns   Frame type: one of FRAME_TYPE_*
+ */
+int nrf_802154_frame_parser_frame_type_get(const uint8_t * p_frame);
+
+/**
  * @brief Determines if the destination address is extended.
  *
  * @param[in]   p_frame   Pointer to a frame to be checked.
