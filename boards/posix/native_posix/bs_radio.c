@@ -45,8 +45,6 @@ static struct radio_config radio_config;
 static uint8_t rx_buf[RX_TX_BUF_SIZE];
 p2G4_rx_done_t rx_done_s;
 static uint8_t ongoing_tx_buf[RX_TX_BUF_SIZE];
-static uint16_t rx_len;
-static uint16_t ongoing_tx_len;
 static bool is_running;
 static uint8_t device_eui64[8];
 
@@ -98,8 +96,6 @@ void bs_radio_init(void)
 	radio_state = RADIO_STATE_RX_IDLE;
 	radio_config.channel = 0;
 	radio_config.tx_power = 0;
-	rx_len = 0;
-	ongoing_tx_len = 0;
 	is_running = false;
 	memset(rx_buf, 0, RX_TX_BUF_SIZE);
 	memset(ongoing_tx_buf, 0, RX_TX_BUF_SIZE);
@@ -299,14 +295,10 @@ void bs_radio_triggered(void)
 			/* Now we can say that the data is received */
 			struct bs_radio_event_data rx_event_data = {
 				.type = BS_RADIO_EVENT_RX_DONE,
-				.rx_done = { .len = rx_len,
-					     .data = rx_buf,
+				.rx_done = { .psdu = rx_buf,
 					     .rssi = ((int8_t *)&rx_done_s.rssi
 							      .RSSI)[1] }
 			};
-			// radio_event_cb(&rx_event_data);
-			// memset(rx_buf, 0, RX_TX_BUF_SIZE);
-			// rx_len = 0;
 
 			bs_trace_debug(0, "Im going from `RX` to `RX_IDLE`\n");
 			radio_state = RADIO_STATE_RX_IDLE;
@@ -315,7 +307,6 @@ void bs_radio_triggered(void)
 
 			radio_event_cb(&rx_event_data);
 			memset(rx_buf, 0, RX_TX_BUF_SIZE);
-			rx_len = 0;
 		} else {
 			bs_trace_warning(
 				"Bad state, it shouldn't have happened\n");
@@ -345,7 +336,6 @@ void bs_radio_triggered(void)
 			};
 			radio_event_cb(&tx_event_data);
 			memset(ongoing_tx_buf, 0, RX_TX_BUF_SIZE);
-			ongoing_tx_len = 0;
 
 			bs_trace_debug(0, "Im going from `TX` to `RX_IDLE`\n");
 			radio_state = RADIO_STATE_RX_IDLE;
@@ -369,15 +359,14 @@ void bs_radio_triggered(void)
  * it will send data. Otherwise it will return with error.
  * 
  * Arguments:
- * data         - the data to send
- * data_len     - number of bytes in the buffer
+ * data         - the data to send - data[0] is the length of following data
  * cca          - (unused) set whether to perform cca or not
  *
  * Returns:
  * 0            - data successfully sent
  * negative     - data couldn't be sent
  */
-int bs_radio_tx(uint8_t *data, uint16_t data_len, bool cca)
+int bs_radio_tx(uint8_t *data, bool cca)
 {
 	if (!bs_radio_argparse_get()->is_bsim) {
 		return -EFAULT;
@@ -389,8 +378,7 @@ int bs_radio_tx(uint8_t *data, uint16_t data_len, bool cca)
 		return -1;
 	}
 
-	if ((data == NULL) || (data_len == 0) ||
-	    radio_state == RADIO_STATE_RX) {
+	if ((data == NULL) || radio_state == RADIO_STATE_RX) {
 		bs_trace_debug(0, "Radio is now receiving\n");
 		return -1;
 	}
@@ -404,8 +392,7 @@ int bs_radio_tx(uint8_t *data, uint16_t data_len, bool cca)
 	bs_trace_debug(0, "Im going from `RX_IDLE` to `TX_PREPARE`\n");
 	radio_state = RADIO_STATE_TX_PREPARE;
 
-	ongoing_tx_len = data_len;
-	memcpy(ongoing_tx_buf, data, data_len);
+	memcpy(ongoing_tx_buf, data, data[0]+1);
 
 	bs_radio_timer = hwm_get_time() + RADIO_TX_INTERVAL;
 	hwm_find_next_timer();
@@ -503,8 +490,8 @@ static int try_receive(uint32_t scan_duration, uint64_t *end_time)
 	last_phy_sync_time = rx_done_s.end_time;
 
 	if ((ret >= 0) && (rx_done_s.packet_size > 0)) {
-		memcpy(rx_buf, frame, rx_done_s.packet_size);
-		rx_len = rx_done_s.packet_size;
+		memcpy(rx_buf + 1, frame, rx_done_s.packet_size);
+		rx_buf[0] = rx_done_s.packet_size;
 		free(frame);
 		bs_trace_debug(0, "RX status: %s\n",
 			       rx_status_to_str(rx_done_s.status, status_buf));
@@ -516,7 +503,7 @@ static int try_receive(uint32_t scan_duration, uint64_t *end_time)
 }
 
 /**
- * Send data from ongoing_tx_buf of ongoing_tx_len bytes
+ * Send data from ongoing_tx_buf
  * 
  * Arguments:
  * start_time     - When the transmission will start
@@ -529,13 +516,13 @@ static void send_data(uint64_t tx_start_time, uint64_t *end_time)
 
 	ongoing_tx.radio_params.center_freq = radio_config.channel;
 	ongoing_tx.power_level = radio_config.tx_power;
-	ongoing_tx.packet_size = ongoing_tx_len;
+	ongoing_tx.packet_size = ongoing_tx_buf[0];
 	ongoing_tx.start_time = tx_start_time;
 	ongoing_tx.end_time = ongoing_tx.start_time +
-			      packet_bitlen(ongoing_tx_len, RX_TX_BPS);
+			      packet_bitlen(ongoing_tx_buf[0], RX_TX_BPS);
 	bs_trace_debug(0, "Data tx end time: %llu\n", ongoing_tx.end_time);
 
-	result = p2G4_dev_req_tx_c_b(&ongoing_tx, ongoing_tx_buf, &tx_done_s);
+	result = p2G4_dev_req_tx_c_b(&ongoing_tx, ongoing_tx_buf+1, &tx_done_s);
 
 	*end_time = ongoing_tx.end_time;
 	last_phy_sync_time = ongoing_tx.end_time;

@@ -19,31 +19,10 @@ LOG_MODULE_REGISTER(wpancmd);
 static struct ieee802154_radio_api *radio_api;
 static struct device *ieee802154_dev;
 
-static int tx(struct net_pkt *pkt)
-{
-	struct net_buf *buf = net_buf_frag_last(pkt->buffer);
-	uint8_t seq = net_buf_pull_u8(buf);
-	int retries = 3;
-	int ret;
-
-	do {
-		ret = radio_api->tx(ieee802154_dev, IEEE802154_TX_MODE_DIRECT,
-				    pkt, buf);
-	} while (ret && retries--);
-
-	if (ret) {
-		printk("Error sending data, seq %u", seq);
-		/* Send seq = 0 for unsuccessful send */
-		seq = 0U;
-	}
-
-	return ret;
-}
-
 static int net_pkt_fill(struct net_pkt **pkt, uint8_t *bytes, uint8_t len)
 {
 	/* Maximum 2 bytes are added to the len */
-	*pkt = net_pkt_alloc_with_buffer(NULL, len + 2, AF_UNSPEC, 0,
+	*pkt = net_pkt_alloc_with_buffer(NULL, len, AF_UNSPEC, 0,
 					 K_NO_WAIT);
 	if (!(*pkt)) {
 		return -ENOMEM;
@@ -185,27 +164,6 @@ static void print_frames(frame_any_t *frames[], int nframes)
 			} while (shift--);
 			printf("|\t{0x%x}\t{%u}\n", buf[i], buf[i]);
 		}
-	}
-}
-
-static void send_frames(frame_any_t *frames[], int nframes)
-{
-	for (int i = 0; i < nframes; i++) {
-		int tx_status;
-		int frame_len;
-		uint8_t tx_data[127];
-		struct net_pkt *netpkt;
-		struct net_buf *netbuf;
-
-		frame_len = frame_to_bytes(frames[i], tx_data);
-
-		net_pkt_fill(&netpkt, tx_data, frame_len); 
-		netbuf = net_buf_frag_last(netpkt->buffer);
-		net_pkt_hexdump(netpkt, ">");
-		tx_status = tx(netpkt);
-		net_pkt_unref(netpkt);
-
-		printf ("Frame transmission %s\n", !tx_status ? "succeded" : "failed");
 	}
 }
 

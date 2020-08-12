@@ -47,8 +47,8 @@ struct bs_radio_event_data {
 	enum bs_radio_event_types type;
 	union {
 		struct {
-			uint16_t len;
-			uint8_t *data;
+			/* Received data starts at psdu+1, psdu[0] holds the len of packet */
+			uint8_t *psdu;
 			int8_t rssi;
 		} rx_done;
 
@@ -70,7 +70,7 @@ void bs_radio_deinit(void);
 void bs_radio_start(bs_radio_event_cb_t event_cb);
 void bs_radio_stop();
 
-int bs_radio_tx(uint8_t *data, uint16_t data_len, bool cca);
+int bs_radio_tx(uint8_t *data, bool cca);
 int bs_radio_rssi(uint64_t duration_us);
 
 int bs_radio_cca(void);

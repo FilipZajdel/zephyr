@@ -3,7 +3,14 @@
 
 #include <stdint.h>
 
-#define FRAME_TYPE_DATA (0x2)
+#define FRAME_TYPE_DATA (0x1)
+#define FRAME_TYPE_ACK 0x02
+#define FRAME_TYPE_BEACON 0x00
+#define FRAME_TYPE_COMMAND 0x03
+#define FRAME_TYPE_DATA 0x01
+#define FRAME_TYPE_EXTENDED 0x07
+#define FRAME_TYPE_FRAGMENT 0x06
+#define FRAME_TYPE_MULTIPURPOSE 0x05
 
 #define FRAME_FCF_TYPE (0)
 #define FRAME_FCF_SEC_EN (3)

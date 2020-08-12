@@ -22,7 +22,6 @@ static struct device *ieee802154_dev;
 static int tx(struct net_pkt *pkt)
 {
 	struct net_buf *buf = net_buf_frag_last(pkt->buffer);
-	uint8_t seq = net_buf_pull_u8(buf);
 	int retries = 3;
 	int ret;
 
@@ -32,9 +31,7 @@ static int tx(struct net_pkt *pkt)
 	} while (ret && retries--);
 
 	if (ret) {
-		printk("Error sending data, seq %u", seq);
-		/* Send seq = 0 for unsuccessful send */
-		seq = 0U;
+		printk("Error sending data\n");
 	}
 
 	return ret;
@@ -56,12 +53,13 @@ static int net_pkt_fill(struct net_pkt **pkt, uint8_t *psdu)
 	uint8_t packet_len = psdu[0];
 	
 	*pkt = net_pkt_alloc_with_buffer(NULL, packet_len, AF_UNSPEC, 0,
-					 K_NO_WAIT);
+					 K_FOREVER);
 	if (!(*pkt)) {
 		return -ENOMEM;
 	}
 
-	net_pkt_write(*pkt, psdu, packet_len);
+	net_pkt_cursor_init(*pkt);
+	net_pkt_write(*pkt, psdu+1, packet_len);
 	printk("pkt %p len %u\n", *pkt, packet_len);
 	return 0;
 }
@@ -206,13 +204,10 @@ static void send_frames(frame_any_t *frames[], int nframes)
 		int tx_status;
 		uint8_t tx_data[128];
 		struct net_pkt *netpkt;
-		struct net_buf *netbuf;
 
-		tx_data[0] = (uint8_t)frame_to_bytes(frames[i], &tx_data[1]);
-		printk("tx_data[0] %d\n", tx_data[0]);
+		tx_data[0] = frame_to_bytes(frames[i], &tx_data[1]);
 
 		net_pkt_fill(&netpkt, tx_data);
-		netbuf = net_buf_frag_last(netpkt->buffer);
 		net_pkt_hexdump(netpkt, ">");
 		tx_status = tx(netpkt);
 		net_pkt_unref(netpkt);

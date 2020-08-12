@@ -83,6 +83,9 @@ struct native_posix_802154_data {
 	 */
 	struct k_sem tx_wait;
 
+	/* TX ack synchronization semaphore. Unlocked when ack was received */
+	struct k_sem tx_ack_wait;
+
 	/* TX buffer. First byte is PHR (length), remaining bytes are
 	 * MPDU data.
 	 */

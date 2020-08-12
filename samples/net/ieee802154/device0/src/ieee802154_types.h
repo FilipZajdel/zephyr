@@ -3,7 +3,14 @@
 
 #include <stdint.h>
 
-#define FRAME_TYPE_DATA (0x2)
+#define FRAME_TYPE_DATA (0x1)
+#define FRAME_TYPE_ACK 0x02
+#define FRAME_TYPE_BEACON 0x00
+#define FRAME_TYPE_COMMAND 0x03
+#define FRAME_TYPE_DATA 0x01
+#define FRAME_TYPE_EXTENDED 0x07
+#define FRAME_TYPE_FRAGMENT 0x06
+#define FRAME_TYPE_MULTIPURPOSE 0x05
 
 #define FRAME_FCF_TYPE (0)
 #define FRAME_FCF_SEC_EN (3)
@@ -23,13 +30,12 @@
 #define FRAME_FCF_VER_MASK ((1UL << 12) | (1UL << 13))
 #define FRAME_FCF_SRC_ADDR_MODE_MASK ((1UL << 14) | (1UL << 15))
 
-
 #define FRAME_FCF_SET(fcf, BIT_NAME, value)                                    \
 	do {                                                                   \
-		uint16_t backup = fcf | (BIT_NAME##_MASK);                    \
-		fcf &= ~(BIT_NAME##_MASK);                                    \
-		fcf |= (value << BIT_NAME);                                   \
-		fcf &= backup;                                                \
+		uint16_t backup = fcf | (BIT_NAME##_MASK);                     \
+		fcf &= ~(BIT_NAME##_MASK);                                     \
+		fcf |= (value << BIT_NAME);                                    \
+		fcf &= backup;                                                 \
 	} while (0);
 
 #define FRAME_FCF_GET(fcf, BIT_NAME) (fcf & BIT_NAME##_MASK) >> BIT_NAME
