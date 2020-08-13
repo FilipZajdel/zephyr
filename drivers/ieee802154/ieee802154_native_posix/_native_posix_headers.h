@@ -7,6 +7,7 @@
 #include "nrf_802154_utils.h"
 #include "nrf_802154_types.h"
 #include "nrf_802154_pib.h"
+#include "nrf_802154_filter.h"
 #include "ack_generator/nrf_802154_ack_data.h"
 #include "ack_generator/nrf_802154_ack_data.h"
 #include "ack_generator/nrf_802154_ack_generator.h"
