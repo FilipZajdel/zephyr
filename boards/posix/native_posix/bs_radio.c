@@ -17,12 +17,13 @@
 #include "bs_pc_2G4.h"
 #include "bs_radio_argparse.h"
 
-#define RX_TX_BUF_SIZE (150)
+#define RX_TX_BUF_SIZE (128)
 #define RX_TX_BPS (1000000)
-#define TX_POWER_LVL (20)
 
-#define RADIO_SAMPLING_INTERVAL (1000)
+#define RADIO_UPDATE_INTERVAL (1000)
 #define RADIO_TX_INTERVAL (1)
+
+/* This is needed to bypass address check in 2G4 Phy */
 #define IEEE802154_PHYADDRESS (0xDEAD)
 
 struct radio_config {
@@ -54,13 +55,11 @@ static p2G4_rx_t ongoing_rx = {
     .phy_address = IEEE802154_PHYADDRESS,
     .radio_params = {
         .modulation = P2G4_MOD_BLE,
-        .center_freq = 20,
     },
     .antenna_gain = 0,
     .sync_threshold = 100,
     .header_threshold = 100,
     .pream_and_addr_duration = 0,
-    .scan_duration = 1500,
     .header_duration = 0,
     .bps = RX_TX_BPS,
     .abort = {NEVER, NEVER},
@@ -72,16 +71,13 @@ static p2G4_tx_t ongoing_tx = {
     .phy_address = IEEE802154_PHYADDRESS,
     .radio_params = {
         .modulation = P2G4_MOD_BLE,
-        .center_freq = 20,
     },
-    .power_level = TX_POWER_LVL,
     .packet_size = 0,
     .abort = {NEVER, NEVER}
 };
 
 static int try_receive(uint32_t scan_duration, uint64_t *end_time);
 static uint64_t packet_bitlen(uint32_t packet_len, uint64_t bps);
-static char *rx_status_to_str(uint8_t status, char *buf);
 static void send_data(uint64_t tx_start_time, uint64_t *end_time);
 static void fill_eui64(void);
 
@@ -139,7 +135,7 @@ void bs_radio_start(bs_radio_event_cb_t event_cb)
 
 	is_running = true;
 	radio_event_cb = event_cb;
-	bs_radio_timer = hwm_get_time() + RADIO_SAMPLING_INTERVAL;
+	bs_radio_timer = hwm_get_time() + RADIO_UPDATE_INTERVAL;
 	hwm_find_next_timer();
 }
 
@@ -280,13 +276,14 @@ void bs_radio_triggered(void)
 				      &last_rx_try_end);
 
 		if (0 == ret) {
-			bs_trace_debug(0, "Im going from `RX_IDLE` to `RX`\n");
+			bs_trace_debug(
+				0,
+				"Changing radio state from `RX_IDLE` to `RX`\n");
 			radio_state = RADIO_STATE_RX;
 			bs_radio_timer = last_rx_try_end;
 		} else {
 			radio_state = RADIO_STATE_RX_IDLE;
-			bs_radio_timer = last_rx_try_end +
-					 1; // + RADIO_SAMPLING_INTERVAL;
+			bs_radio_timer = last_rx_try_end + 1;
 		}
 		break;
 	}
@@ -300,9 +297,11 @@ void bs_radio_triggered(void)
 							      .RSSI)[1] }
 			};
 
-			bs_trace_debug(0, "Im going from `RX` to `RX_IDLE`\n");
+			bs_trace_debug(
+				0,
+				"Changing radio state from `RX` to `RX_IDLE`\n");
 			radio_state = RADIO_STATE_RX_IDLE;
-			bs_radio_timer = current_time + RADIO_SAMPLING_INTERVAL;
+			bs_radio_timer = current_time + RADIO_UPDATE_INTERVAL;
 			last_rx_try_end = NEVER;
 
 			radio_event_cb(&rx_event_data);
@@ -316,9 +315,11 @@ void bs_radio_triggered(void)
 		break;
 	case RADIO_STATE_TX_PREPARE:
 		if (last_phy_sync_time <= current_time) {
-			bs_trace_debug(0,
-				       "Im going from `TX_PREPARE` to `TX`\n");
-			send_data(current_time + 1, &last_tx_end);
+			bs_trace_debug(
+				0,
+				"Changing radio state from `TX_PREPARE` to `TX`\n");
+			send_data(current_time + RADIO_TX_INTERVAL,
+				  &last_tx_end);
 			bs_trace_debug(0, "After data send\n");
 			radio_state = RADIO_STATE_TX;
 			bs_radio_timer = last_tx_end;
@@ -337,7 +338,9 @@ void bs_radio_triggered(void)
 			radio_event_cb(&tx_event_data);
 			memset(ongoing_tx_buf, 0, RX_TX_BUF_SIZE);
 
-			bs_trace_debug(0, "Im going from `TX` to `RX_IDLE`\n");
+			bs_trace_debug(
+				0,
+				"Changing radio state from `TX` to `RX_IDLE`\n");
 			radio_state = RADIO_STATE_RX_IDLE;
 			last_tx_end = NEVER;
 			bs_radio_timer = current_time + RADIO_TX_INTERVAL;
@@ -374,25 +377,26 @@ int bs_radio_tx(uint8_t *data, bool cca)
 
 	/* (void *)cca; */ /* Unused */
 	if (!is_running) {
-		bs_trace_debug(0, "Radio was not started\n");
+		bs_trace_warning(0, "Radio was not started\n");
 		return -1;
 	}
 
 	if ((data == NULL) || radio_state == RADIO_STATE_RX) {
-		bs_trace_debug(0, "Radio is now receiving\n");
+		bs_trace_warning(0, "Radio is now receiving\n");
 		return -1;
 	}
 
 	if ((radio_state == RADIO_STATE_TX) ||
 	    (radio_state == RADIO_STATE_TX_PREPARE)) {
-		bs_trace_debug(0, "Radio is now transmitting\n");
+		bs_trace_warning(0, "Radio is now transmitting\n");
 		return -1;
 	}
 
-	bs_trace_debug(0, "Im going from `RX_IDLE` to `TX_PREPARE`\n");
+	bs_trace_debug(0,
+		       "Changing radio state from `RX_IDLE` to `TX_PREPARE`\n");
 	radio_state = RADIO_STATE_TX_PREPARE;
 
-	memcpy(ongoing_tx_buf, data, data[0]+1);
+	memcpy(ongoing_tx_buf, data, data[0] + 1);
 
 	bs_radio_timer = hwm_get_time() + RADIO_TX_INTERVAL;
 	hwm_find_next_timer();
@@ -447,9 +451,7 @@ void bs_radio_get_mac(uint8_t *mac)
 	memcpy(mac, device_eui64, 8);
 }
 
-/**
- * Private functions
- */
+/* Private functions */
 
 /**
  * Attempt data reception. Blocks until data is received.
@@ -472,7 +474,6 @@ static int try_receive(uint32_t scan_duration, uint64_t *end_time)
 {
 	int ret;
 	uint8_t *frame = NULL;
-	char status_buf[20];
 
 	ongoing_rx.radio_params.center_freq = radio_config.channel;
 
@@ -493,8 +494,6 @@ static int try_receive(uint32_t scan_duration, uint64_t *end_time)
 		memcpy(rx_buf + 1, frame, rx_done_s.packet_size);
 		rx_buf[0] = rx_done_s.packet_size;
 		free(frame);
-		bs_trace_debug(0, "RX status: %s\n",
-			       rx_status_to_str(rx_done_s.status, status_buf));
 		return 0;
 	}
 
@@ -522,7 +521,8 @@ static void send_data(uint64_t tx_start_time, uint64_t *end_time)
 			      packet_bitlen(ongoing_tx_buf[0], RX_TX_BPS);
 	bs_trace_debug(0, "Data tx end time: %llu\n", ongoing_tx.end_time);
 
-	result = p2G4_dev_req_tx_c_b(&ongoing_tx, ongoing_tx_buf+1, &tx_done_s);
+	result = p2G4_dev_req_tx_c_b(&ongoing_tx, ongoing_tx_buf + 1,
+				     &tx_done_s);
 
 	*end_time = ongoing_tx.end_time;
 	last_phy_sync_time = ongoing_tx.end_time;
@@ -545,30 +545,4 @@ static void fill_eui64(void)
 	}
 	device_eui64[1] = (uint8_t)((args->device_nbr >> 8));
 	device_eui64[0] = (uint8_t)(args->device_nbr);
-}
-
-static char *rx_status_to_str(uint8_t status, char *buf)
-{
-	switch (status) {
-	case P2G4_RXSTATUS_OK:
-		strcpy(buf, "P2G4_RXSTATUS_OK");
-		break;
-	case P2G4_RXSTATUS_CRC_ERROR:
-		strcpy(buf, "P2G4_RXSTATUS_OK");
-		break;
-	case P2G4_RXSTATUS_HEADER_ERROR:
-		strcpy(buf, "P2G4_RXSTATUS_OK");
-		break;
-	case P2G4_RXSTATUS_NOSYNC:
-		strcpy(buf, "P2G4_RXSTATUS_OK");
-		break;
-	case P2G4_RXSTATUS_INPROGRESS:
-		strcpy(buf, "P2G4_RXSTATUS_OK");
-		break;
-	default:
-		strcpy(buf, "UNKNOWN");
-		break;
-	}
-
-	return buf;
 }
