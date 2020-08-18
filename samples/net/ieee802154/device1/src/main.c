@@ -14,16 +14,99 @@ LOG_MODULE_REGISTER(wpancmd);
 #include <net/ieee802154_radio.h>
 #include <ieee802154/ieee802154_frame.h>
 #include <net_private.h>
-#include "ieee802154_types.h"
+#include "config_parser.h"
+
+#define CFG_COLS_OFFSET 4
+#define TEST_CONFIG_FILENAME "../../../test_data"
+
+typedef struct ieee802154_test_config {
+	uint8_t ieee_addr[8];
+	uint8_t short_addr[2];
+	uint8_t pan_id[2];
+	bool is_pan_coord;
+} ieee802154_test_config_t;
+
+typedef struct ieee802154_test {
+	ieee802154_test_config_t *configs;
+	int ctr;
+	int ntests;
+} ieee802154_test_t;
 
 static struct ieee802154_radio_api *radio_api;
 static struct device *ieee802154_dev;
+static ieee802154_test_t test_data = { .ctr = 0, .ntests = 0, .configs = NULL };
+
+static void radio_configure(ieee802154_test_config_t *config);
+
+static int load_test_data(const char *config_file, ieee802154_test_t *test_data)
+{
+	int configs_ctr;
+	int tests_num;
+	struct config_parser tests_parser = {
+		.ncols = 10,
+		.datatypes = { CSV_DATATYPE_BYTESTREAM, CSV_DATATYPE_BYTESTREAM,
+			       CSV_DATATYPE_BYTESTREAM, CSV_DATATYPE_BOOLEAN,
+			       CSV_DATATYPE_BYTESTREAM, CSV_DATATYPE_BYTESTREAM,
+			       CSV_DATATYPE_BYTESTREAM, CSV_DATATYPE_BOOLEAN,
+			       CSV_DATATYPE_BYTESTREAM,
+			       CSV_DATATYPE_BYTESTREAM }
+	};
+
+	if (!config_openfile(config_file)) {
+		return -EIO;
+	}
+
+	tests_num = get_config_lines_number();
+
+	test_data->configs =
+		malloc(sizeof(ieee802154_test_config_t) * tests_num);
+	if (!test_data->configs) {
+		config_closefile();
+		return -ENOMEM;
+	}
+
+	test_data->ctr = 0;
+
+	configs_ctr = 0;
+	for (;; configs_ctr++) {
+		if (!config_parse_line(&tests_parser)) {
+			config_parser_clean(&tests_parser);
+			break;
+		}
+
+		memcpy(test_data->configs[configs_ctr].ieee_addr,
+		       tests_parser.dest[CFG_COLS_OFFSET + 0].bytestream + 1,
+		       8);
+		memcpy(test_data->configs[configs_ctr].short_addr,
+		       tests_parser.dest[CFG_COLS_OFFSET + 1].bytestream + 1,
+		       2);
+		memcpy(test_data->configs[configs_ctr].pan_id,
+		       tests_parser.dest[CFG_COLS_OFFSET + 2].bytestream + 1,
+		       2);
+
+		test_data->configs[configs_ctr].is_pan_coord =
+			*tests_parser.dest[3].boolean;
+
+		config_parser_clean(&tests_parser);
+	}
+
+	test_data->ntests = configs_ctr;
+	config_closefile();
+
+	return configs_ctr;
+}
+
+static void example_cleanup()
+{
+        if (test_data.configs) {
+                free(test_data.configs);
+        }
+}
 
 static int net_pkt_fill(struct net_pkt **pkt, uint8_t *bytes, uint8_t len)
 {
 	/* Maximum 2 bytes are added to the len */
-	*pkt = net_pkt_alloc_with_buffer(NULL, len, AF_UNSPEC, 0,
-					 K_NO_WAIT);
+	*pkt = net_pkt_alloc_with_buffer(NULL, len, AF_UNSPEC, 0, K_NO_WAIT);
 	if (!(*pkt)) {
 		return -ENOMEM;
 	}
@@ -73,16 +156,69 @@ int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
 
 out:
 	net_pkt_unref(pkt);
+	radio_configure(&test_data.configs[test_data.ctr++]);
 
 	return ret;
 }
 
+/** Configure incoming addresses */
+static void device_addr_configure(const uint8_t *addr, bool extended, bool set)
+{
+	const struct ieee802154_config config = { .ack_fpb.addr =
+							  (uint8_t *)addr,
+						  .ack_fpb.extended = extended,
+						  .ack_fpb.enabled = set };
+
+	radio_api->configure(ieee802154_dev, IEEE802154_CONFIG_ACK_FPB,
+			     &config);
+}
+
+/** Configure addresses of this device */
+static void device_addr_set(const uint8_t *addr, bool extended, bool pan)
+{
+	struct ieee802154_filter filter;
+
+	if (pan) {
+		filter.pan_id = *(uint16_t *)addr;
+		radio_api->filter(ieee802154_dev, true,
+				  IEEE802154_FILTER_TYPE_PAN_ID, &filter);
+	} else if (extended) {
+		filter.ieee_addr = (uint8_t *)addr;
+		radio_api->filter(ieee802154_dev, true,
+				  IEEE802154_FILTER_TYPE_IEEE_ADDR, &filter);
+	} else {
+		filter.short_addr = *(uint16_t *)addr;
+		radio_api->filter(ieee802154_dev, true,
+				  IEEE802154_FILTER_TYPE_SHORT_ADDR, &filter);
+	}
+}
+
+/** Set coordinator role of the device */
+static void set_coord_role(bool enabled)
+{
+	const struct ieee802154_config config = { .pan_coordinator = enabled };
+
+	radio_api->configure(ieee802154_dev, IEEE802154_CONFIG_PAN_COORDINATOR,
+			     &config);
+}
+
+static void radio_configure(ieee802154_test_config_t *config)
+{
+	set_coord_role(config->is_pan_coord);
+	device_addr_set(config->ieee_addr, true, false);
+	device_addr_set(config->pan_id, false, true);
+	device_addr_set(config->short_addr, false, false);
+}
+
 static void example_init(void)
 {
-	enum ieee802154_config_type config_type =
-		IEEE802154_FPB_ADDR_MATCH_ZIGBEE;
-	const struct ieee802154_config config = {
-		/** TODO: FILL The configuration */
+	enum ieee802154_config_type config_types[] = {
+		IEEE802154_CONFIG_AUTO_ACK_FPB, IEEE802154_CONFIG_PROMISCUOUS
+	};
+	const struct ieee802154_config configs[] = {
+		{ .auto_ack_fpb.enabled = true,
+		  .auto_ack_fpb.mode = IEEE802154_FPB_ADDR_MATCH_ZIGBEE },
+		{ .promiscuous = true }
 	};
 
 	uint8_t channel = 20;
@@ -109,7 +245,13 @@ static void example_init(void)
 
 	radio_api->set_channel(ieee802154_dev, channel);
 	radio_api->set_txpower(ieee802154_dev, power);
-	radio_api->configure(ieee802154_dev, config_type, &config);
+
+	for (int i = 0; i < ARRAY_SIZE(config_types); i++) {
+		radio_api->configure(ieee802154_dev, config_types[i],
+				     &configs[i]);
+	}
+
+	radio_configure(&test_data.configs[test_data.ctr++]);
 	int status = radio_api->start(ieee802154_dev);
 
 	if (status) {
@@ -119,60 +261,17 @@ static void example_init(void)
 	}
 }
 
-static void generate_rand_arr(uint8_t *arr, uint16_t size)
-{
-	srand(time(NULL));
-	for (int i = 0; i < size; i++) {
-		arr[i] = rand();
-	}
-}
-
-static void generate_data_frames(frame_any_t *frames[], uint16_t nframes)
-{
-	srand(time(NULL));
-
-	while (nframes-- > 0) {
-		uint8_t payload_len = rand() % 64;
-		data_frame_t *data_frame =
-			frame_create(FRAME_TYPE_DATA, true, payload_len, 0);
-		generate_rand_arr(data_frame->payload, payload_len);
-		FRAME_FCF_SET(*(uint16_t *)data_frame->frame_control,
-			      FRAME_FCF_AR, 1);
-
-		frames[nframes] = data_frame;
-	}
-}
-
-static void destroy_data_frames(frame_any_t *frames[], uint16_t nframes)
-{
-	for (int i = 0; i < nframes; i++) {
-		frame_destroy(&frames[i]);
-	}
-}
-
-static void print_frames(frame_any_t *frames[], int nframes)
-{
-	for (int f_ctr = 0; f_ctr < nframes; f_ctr++) {
-		uint8_t buf[127];
-		int frame_len = frame_to_bytes(frames[f_ctr], buf);
-
-		for (int i = 0; i < frame_len; i++) {
-			int shift = 7;
-			printf("[%d]\t", i);
-			do {
-				printf("%d\t", (buf[i] >> shift) & 1);
-			} while (shift--);
-			printf("|\t{0x%x}\t{%u}\n", buf[i], buf[i]);
-		}
-	}
-}
-
 void main(void)
 {
+	/* Read the test config file */
+	load_test_data(TEST_CONFIG_FILENAME, &test_data);
+
 	/* Do the device binding, start the radio and initialize net_pkt */
 	example_init();
 
 	k_sleep(K_FOREVER);
+
+        example_cleanup();
 
 	/* Terminate */
 	posix_exit(0);

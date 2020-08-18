@@ -43,14 +43,15 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "nrf_802154_const.h"
 #include "nrf_802154_frame_parser.h"
 #include "nrf_802154_pib.h"
 
-#define FCF_CHECK_OFFSET           (PHR_SIZE + FCF_SIZE)
-#define PANID_CHECK_OFFSET         (DEST_ADDR_OFFSET)
-#define SHORT_ADDR_CHECK_OFFSET    (DEST_ADDR_OFFSET + SHORT_ADDRESS_SIZE)
+#define FCF_CHECK_OFFSET (PHR_SIZE + FCF_SIZE)
+#define PANID_CHECK_OFFSET (DEST_ADDR_OFFSET)
+#define SHORT_ADDR_CHECK_OFFSET (DEST_ADDR_OFFSET + SHORT_ADDRESS_SIZE)
 #define EXTENDED_ADDR_CHECK_OFFSET (DEST_ADDR_OFFSET + EXTENDED_ADDRESS_SIZE)
 
 /**
@@ -62,33 +63,33 @@
  * @retval true   Given frame version is allowed for given frame type.
  * @retval false  Given frame version is not allowed for given frame type.
  */
-static bool frame_type_and_version_filter(uint8_t frame_type, uint8_t frame_version)
+static bool frame_type_and_version_filter(uint8_t frame_type,
+					  uint8_t frame_version)
 {
-    bool result;
+	bool result;
 
-    switch (frame_type)
-    {
-        case FRAME_TYPE_BEACON:
-        case FRAME_TYPE_DATA:
-        case FRAME_TYPE_ACK:
-        case FRAME_TYPE_COMMAND:
-            result = (frame_version != FRAME_VERSION_3);
-            break;
+	switch (frame_type) {
+	case FRAME_TYPE_BEACON:
+	case FRAME_TYPE_DATA:
+	case FRAME_TYPE_ACK:
+	case FRAME_TYPE_COMMAND:
+		result = (frame_version != FRAME_VERSION_3);
+		break;
 
-        case FRAME_TYPE_MULTIPURPOSE:
-            result = (frame_version == FRAME_VERSION_0);
-            break;
+	case FRAME_TYPE_MULTIPURPOSE:
+		result = (frame_version == FRAME_VERSION_0);
+		break;
 
-        case FRAME_TYPE_FRAGMENT:
-        case FRAME_TYPE_EXTENDED:
-            result = true;
-            break;
+	case FRAME_TYPE_FRAGMENT:
+	case FRAME_TYPE_EXTENDED:
+		result = true;
+		break;
 
-        default:
-            result = false;
-    }
+	default:
+		result = false;
+	}
 
-    return result;
+	return result;
 }
 
 /**
@@ -103,28 +104,27 @@ static bool frame_type_and_version_filter(uint8_t frame_type, uint8_t frame_vers
  */
 static bool dst_addressing_may_be_present(uint8_t frame_type)
 {
-    bool result;
+	bool result;
 
-    switch (frame_type)
-    {
-        case FRAME_TYPE_BEACON:
-        case FRAME_TYPE_DATA:
-        case FRAME_TYPE_ACK:
-        case FRAME_TYPE_COMMAND:
-        case FRAME_TYPE_MULTIPURPOSE:
-            result = true;
-            break;
+	switch (frame_type) {
+	case FRAME_TYPE_BEACON:
+	case FRAME_TYPE_DATA:
+	case FRAME_TYPE_ACK:
+	case FRAME_TYPE_COMMAND:
+	case FRAME_TYPE_MULTIPURPOSE:
+		result = true;
+		break;
 
-        case FRAME_TYPE_FRAGMENT:
-        case FRAME_TYPE_EXTENDED:
-            result = false;
-            break;
+	case FRAME_TYPE_FRAGMENT:
+	case FRAME_TYPE_EXTENDED:
+		result = false;
+		break;
 
-        default:
-            result = false;
-    }
+	default:
+		result = false;
+	}
 
-    return result;
+	return result;
 }
 
 /**
@@ -145,51 +145,49 @@ static bool dst_addressing_may_be_present(uint8_t frame_type)
  * @retval NRF_802154_RX_ERROR_INVALID_FRAME      Detected an error in given frame - it should be
  *                                                discarded.
  */
-static nrf_802154_rx_error_t dst_addressing_end_offset_get_2006(const uint8_t * p_data,
-                                                                uint8_t       * p_num_bytes,
-                                                                uint8_t         frame_type)
+static nrf_802154_rx_error_t
+dst_addressing_end_offset_get_2006(const uint8_t *p_data, uint8_t *p_num_bytes,
+				   uint8_t frame_type)
 {
-    nrf_802154_rx_error_t result;
+	nrf_802154_rx_error_t result;
 
-    switch (p_data[DEST_ADDR_TYPE_OFFSET] & DEST_ADDR_TYPE_MASK)
-    {
-        case DEST_ADDR_TYPE_SHORT:
-            *p_num_bytes = SHORT_ADDR_CHECK_OFFSET;
-            result       = NRF_802154_RX_ERROR_NONE;
-            break;
+	switch (p_data[DEST_ADDR_TYPE_OFFSET] & DEST_ADDR_TYPE_MASK) {
+	case DEST_ADDR_TYPE_SHORT:
+		*p_num_bytes = SHORT_ADDR_CHECK_OFFSET;
+		result = NRF_802154_RX_ERROR_NONE;
+		break;
 
-        case DEST_ADDR_TYPE_EXTENDED:
-            *p_num_bytes = EXTENDED_ADDR_CHECK_OFFSET;
-            result       = NRF_802154_RX_ERROR_NONE;
-            break;
+	case DEST_ADDR_TYPE_EXTENDED:
+		*p_num_bytes = EXTENDED_ADDR_CHECK_OFFSET;
+		result = NRF_802154_RX_ERROR_NONE;
+		break;
 
-        case DEST_ADDR_TYPE_NONE:
-            if (nrf_802154_pib_pan_coord_get() || (frame_type == FRAME_TYPE_BEACON))
-            {
-                switch (p_data[SRC_ADDR_TYPE_OFFSET] & SRC_ADDR_TYPE_MASK)
-                {
-                    case SRC_ADDR_TYPE_SHORT:
-                    case SRC_ADDR_TYPE_EXTENDED:
-                        *p_num_bytes = PANID_CHECK_OFFSET;
-                        result       = NRF_802154_RX_ERROR_NONE;
-                        break;
+	case DEST_ADDR_TYPE_NONE:
+		if (nrf_802154_pib_pan_coord_get() ||
+		    (frame_type == FRAME_TYPE_BEACON)) {
+			switch (p_data[SRC_ADDR_TYPE_OFFSET] &
+				SRC_ADDR_TYPE_MASK) {
+			case SRC_ADDR_TYPE_SHORT:
+			case SRC_ADDR_TYPE_EXTENDED:
+				*p_num_bytes = PANID_CHECK_OFFSET;
+				result = NRF_802154_RX_ERROR_NONE;
+				break;
 
-                    default:
-                        result = NRF_802154_RX_ERROR_INVALID_FRAME;
-                }
-            }
-            else
-            {
-                result = NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
-            }
+			default:
+				printf("DEST_ADDR_TYPE_NONE\n");
+				result = NRF_802154_RX_ERROR_INVALID_FRAME;
+			}
+		} else {
+			result = NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
+		}
 
-            break;
+		break;
 
-        default:
-            result = NRF_802154_RX_ERROR_INVALID_FRAME;
-    }
+	default:
+		result = NRF_802154_RX_ERROR_INVALID_FRAME;
+	}
 
-    return result;
+	return result;
 }
 
 /**
@@ -210,49 +208,44 @@ static nrf_802154_rx_error_t dst_addressing_end_offset_get_2006(const uint8_t * 
  * @retval NRF_802154_RX_ERROR_INVALID_FRAME      Detected an error in given frame - it should be
  *                                                discarded.
  */
-static nrf_802154_rx_error_t dst_addressing_end_offset_get_2015(const uint8_t * p_data,
-                                                                uint8_t       * p_num_bytes,
-                                                                uint8_t         frame_type)
+static nrf_802154_rx_error_t
+dst_addressing_end_offset_get_2015(const uint8_t *p_data, uint8_t *p_num_bytes,
+				   uint8_t frame_type)
 {
-    nrf_802154_rx_error_t result;
+	nrf_802154_rx_error_t result;
 
-    switch (frame_type)
-    {
-        case FRAME_TYPE_BEACON:
-        case FRAME_TYPE_DATA:
-        case FRAME_TYPE_ACK:
-        case FRAME_TYPE_COMMAND:
-        {
-            uint8_t end_offset = nrf_802154_frame_parser_dst_addr_end_offset_get(p_data);
+	switch (frame_type) {
+	case FRAME_TYPE_BEACON:
+	case FRAME_TYPE_DATA:
+	case FRAME_TYPE_ACK:
+	case FRAME_TYPE_COMMAND: {
+		uint8_t end_offset =
+			nrf_802154_frame_parser_dst_addr_end_offset_get(p_data);
 
-            if (end_offset == NRF_802154_FRAME_PARSER_INVALID_OFFSET)
-            {
-                result = NRF_802154_RX_ERROR_INVALID_FRAME;
-            }
-            else
-            {
-                *p_num_bytes = end_offset;
-                result       = NRF_802154_RX_ERROR_NONE;
-            }
-        }
-        break;
+		if (end_offset == NRF_802154_FRAME_PARSER_INVALID_OFFSET) {
+			result = NRF_802154_RX_ERROR_INVALID_FRAME;
+		} else {
+			*p_num_bytes = end_offset;
+			result = NRF_802154_RX_ERROR_NONE;
+		}
+	} break;
 
-        case FRAME_TYPE_MULTIPURPOSE:
-            // TODO: Implement dst addressing filtering according to 2015 spec
-            result = NRF_802154_RX_ERROR_INVALID_FRAME;
-            break;
+	case FRAME_TYPE_MULTIPURPOSE:
+		// TODO: Implement dst addressing filtering according to 2015 spec
+		result = NRF_802154_RX_ERROR_INVALID_FRAME;
+		break;
 
-        case FRAME_TYPE_FRAGMENT:
-        case FRAME_TYPE_EXTENDED:
-            // No addressing data
-            result = NRF_802154_RX_ERROR_NONE;
-            break;
+	case FRAME_TYPE_FRAGMENT:
+	case FRAME_TYPE_EXTENDED:
+		// No addressing data
+		result = NRF_802154_RX_ERROR_NONE;
+		break;
 
-        default:
-            result = NRF_802154_RX_ERROR_INVALID_FRAME;
-    }
+	default:
+		result = NRF_802154_RX_ERROR_INVALID_FRAME;
+	}
 
-    return result;
+	return result;
 }
 
 /**
@@ -273,29 +266,29 @@ static nrf_802154_rx_error_t dst_addressing_end_offset_get_2015(const uint8_t * 
  * @retval NRF_802154_RX_ERROR_INVALID_FRAME      Detected an error in given frame - it should be
  *                                                discarded.
  */
-static nrf_802154_rx_error_t dst_addressing_end_offset_get(const uint8_t * p_data,
-                                                           uint8_t       * p_num_bytes,
-                                                           uint8_t         frame_type,
-                                                           uint8_t         frame_version)
+static nrf_802154_rx_error_t
+dst_addressing_end_offset_get(const uint8_t *p_data, uint8_t *p_num_bytes,
+			      uint8_t frame_type, uint8_t frame_version)
 {
-    nrf_802154_rx_error_t result;
+	nrf_802154_rx_error_t result;
 
-    switch (frame_version)
-    {
-        case FRAME_VERSION_0:
-        case FRAME_VERSION_1:
-            result = dst_addressing_end_offset_get_2006(p_data, p_num_bytes, frame_type);
-            break;
+	switch (frame_version) {
+	case FRAME_VERSION_0:
+	case FRAME_VERSION_1:
+		result = dst_addressing_end_offset_get_2006(p_data, p_num_bytes,
+							    frame_type);
+		break;
 
-        case FRAME_VERSION_2:
-            result = dst_addressing_end_offset_get_2015(p_data, p_num_bytes, frame_type);
-            break;
+	case FRAME_VERSION_2:
+		result = dst_addressing_end_offset_get_2015(p_data, p_num_bytes,
+							    frame_type);
+		break;
 
-        default:
-            result = NRF_802154_RX_ERROR_INVALID_FRAME;
-    }
+	default:
+		result = NRF_802154_RX_ERROR_INVALID_FRAME;
+	}
 
-    return result;
+	return result;
 }
 
 /**
@@ -307,26 +300,22 @@ static nrf_802154_rx_error_t dst_addressing_end_offset_get(const uint8_t * p_dat
  * @retval true   PAN Id of incoming frame allows further processing of the frame.
  * @retval false  PAN Id of incoming frame does not allow further processing.
  */
-static bool dst_pan_id_check(const uint8_t * p_panid, uint8_t frame_type)
+static bool dst_pan_id_check(const uint8_t *p_panid, uint8_t frame_type)
 {
-    bool result;
+	bool result;
 
-    if ((0 == memcmp(p_panid, nrf_802154_pib_pan_id_get(), PAN_ID_SIZE)) ||
-        (0 == memcmp(p_panid, BROADCAST_ADDRESS, PAN_ID_SIZE)))
-    {
-        result = true;
-    }
-    else if ((FRAME_TYPE_BEACON == frame_type) &&
-             (0 == memcmp(nrf_802154_pib_pan_id_get(), BROADCAST_ADDRESS, PAN_ID_SIZE)))
-    {
-        result = true;
-    }
-    else
-    {
-        result = false;
-    }
+	if ((0 == memcmp(p_panid, nrf_802154_pib_pan_id_get(), PAN_ID_SIZE)) ||
+	    (0 == memcmp(p_panid, BROADCAST_ADDRESS, PAN_ID_SIZE))) {
+		result = true;
+	} else if ((FRAME_TYPE_BEACON == frame_type) &&
+		   (0 == memcmp(nrf_802154_pib_pan_id_get(), BROADCAST_ADDRESS,
+				PAN_ID_SIZE))) {
+		result = true;
+	} else {
+		result = false;
+	}
 
-    return result;
+	return result;
 }
 
 /**
@@ -338,21 +327,19 @@ static bool dst_pan_id_check(const uint8_t * p_panid, uint8_t frame_type)
  * @retval true   Destination address of incoming frame allows further processing of the frame.
  * @retval false  Destination address of incoming frame does not allow further processing.
  */
-static bool dst_short_addr_check(const uint8_t * p_dst_addr, uint8_t frame_type)
+static bool dst_short_addr_check(const uint8_t *p_dst_addr, uint8_t frame_type)
 {
-    bool result;
+	bool result;
 
-    if ((0 == memcmp(p_dst_addr, nrf_802154_pib_short_address_get(), SHORT_ADDRESS_SIZE)) ||
-        (0 == memcmp(p_dst_addr, BROADCAST_ADDRESS, SHORT_ADDRESS_SIZE)))
-    {
-        result = true;
-    }
-    else
-    {
-        result = false;
-    }
+	if ((0 == memcmp(p_dst_addr, nrf_802154_pib_short_address_get(),
+			 SHORT_ADDRESS_SIZE)) ||
+	    (0 == memcmp(p_dst_addr, BROADCAST_ADDRESS, SHORT_ADDRESS_SIZE))) {
+		result = true;
+	} else {
+		result = false;
+	}
 
-    return result;
+	return result;
 }
 
 /**
@@ -364,20 +351,19 @@ static bool dst_short_addr_check(const uint8_t * p_dst_addr, uint8_t frame_type)
  * @retval true   Destination address of incoming frame allows further processing of the frame.
  * @retval false  Destination address of incoming frame does not allow further processing.
  */
-static bool dst_extended_addr_check(const uint8_t * p_dst_addr, uint8_t frame_type)
+static bool dst_extended_addr_check(const uint8_t *p_dst_addr,
+				    uint8_t frame_type)
 {
-    bool result;
+	bool result;
 
-    if (0 == memcmp(p_dst_addr, nrf_802154_pib_extended_address_get(), EXTENDED_ADDRESS_SIZE))
-    {
-        result = true;
-    }
-    else
-    {
-        result = false;
-    }
+	if (0 == memcmp(p_dst_addr, nrf_802154_pib_extended_address_get(),
+			EXTENDED_ADDRESS_SIZE)) {
+		result = true;
+	} else {
+		result = false;
+	}
 
-    return result;
+	return result;
 }
 
 /**
@@ -390,87 +376,95 @@ static bool dst_extended_addr_check(const uint8_t * p_dst_addr, uint8_t frame_ty
  * @retval NRF_802154_RX_ERROR_INVALID_FRAME      Received frame is invalid.
  * @retval NRF_802154_RX_ERROR_INVALID_DEST_ADDR  Destination address of incoming frame does not allow further processing.
  */
-static nrf_802154_rx_error_t dst_addr_check(const uint8_t * p_data, uint8_t frame_type)
+static nrf_802154_rx_error_t dst_addr_check(const uint8_t *p_data,
+					    uint8_t frame_type)
 {
-    bool                               result;
-    nrf_802154_frame_parser_mhr_data_t mhr_data;
+	bool result;
+	nrf_802154_frame_parser_mhr_data_t mhr_data;
 
-    result = nrf_802154_frame_parser_mhr_parse(p_data, &mhr_data);
+	result = nrf_802154_frame_parser_mhr_parse(p_data, &mhr_data);
 
-    if (!result)
-    {
-        return NRF_802154_RX_ERROR_INVALID_FRAME;
-    }
+	if (!result) {
+		return NRF_802154_RX_ERROR_INVALID_FRAME;
+	}
 
-    if (mhr_data.p_dst_panid != NULL)
-    {
-        if (!dst_pan_id_check(mhr_data.p_dst_panid, frame_type))
-        {
-            return NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
-        }
-    }
+	if (mhr_data.p_dst_panid != NULL) {
+		printf("dest pan id check frame_type = %u\n", frame_type);
+		if (!dst_pan_id_check(mhr_data.p_dst_panid, frame_type)) {
+			return NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
+		}
+	}
 
-    switch (mhr_data.dst_addr_size)
-    {
-        case SHORT_ADDRESS_SIZE:
-            return dst_short_addr_check(mhr_data.p_dst_addr,
-                                        frame_type) ? NRF_802154_RX_ERROR_NONE :
-                   NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
+	switch (mhr_data.dst_addr_size) {
+	case SHORT_ADDRESS_SIZE:
+		/** TODO: Remove this log */
+		printf("Short address check\treceived: %x,set:%x\n",
+		       *(uint16_t *)mhr_data.p_dst_addr,
+		       *(uint16_t *)nrf_802154_pib_short_address_get());
+		return dst_short_addr_check(mhr_data.p_dst_addr, frame_type) ?
+			       NRF_802154_RX_ERROR_NONE :
+			       NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
 
-        case EXTENDED_ADDRESS_SIZE:
-            return dst_extended_addr_check(mhr_data.p_dst_addr,
-                                           frame_type) ? NRF_802154_RX_ERROR_NONE :
-                   NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
+	case EXTENDED_ADDRESS_SIZE:
+		printf("Extended address check\n");
+		return dst_extended_addr_check(mhr_data.p_dst_addr,
+					       frame_type) ?
+			       NRF_802154_RX_ERROR_NONE :
+			       NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
 
-        case 0:
-            // Allow frames destined to the Pan Coordinator without destination address or
-            // beacon frames without destination address
-            return (nrf_802154_pib_pan_coord_get() ||
-                    (frame_type ==
-                     FRAME_TYPE_BEACON)) ? NRF_802154_RX_ERROR_NONE :
-                   NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
+	case 0:
+		// Allow frames destined to the Pan Coordinator without destination address or
+		// beacon frames without destination address
+		printf("Pib pan coord get\n");
+		return (nrf_802154_pib_pan_coord_get() ||
+			(frame_type == FRAME_TYPE_BEACON)) ?
+			       NRF_802154_RX_ERROR_NONE :
+			       NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
 
-        default:
-            assert(false);
-    }
+	default:
+		assert(false);
+	}
 
-    return NRF_802154_RX_ERROR_INVALID_FRAME;
+	return NRF_802154_RX_ERROR_INVALID_FRAME;
 }
 
-nrf_802154_rx_error_t nrf_802154_filter_frame_part(const uint8_t * p_data, uint8_t * p_num_bytes)
+nrf_802154_rx_error_t nrf_802154_filter_frame_part(const uint8_t *p_data,
+						   uint8_t *p_num_bytes)
 {
-    nrf_802154_rx_error_t result        = NRF_802154_RX_ERROR_INVALID_FRAME;
-    uint8_t               frame_type    = p_data[FRAME_TYPE_OFFSET] & FRAME_TYPE_MASK;
-    uint8_t               frame_version = p_data[FRAME_VERSION_OFFSET] & FRAME_VERSION_MASK;
+	nrf_802154_rx_error_t result = NRF_802154_RX_ERROR_INVALID_FRAME;
+	uint8_t frame_type = p_data[FRAME_TYPE_OFFSET] & FRAME_TYPE_MASK;
+	uint8_t frame_version =
+		p_data[FRAME_VERSION_OFFSET] & FRAME_VERSION_MASK;
 
-    switch (*p_num_bytes)
-    {
-        case FCF_CHECK_OFFSET:
-            if (p_data[0] < IMM_ACK_LENGTH || p_data[0] > MAX_PACKET_SIZE)
-            {
-                result = NRF_802154_RX_ERROR_INVALID_LENGTH;
-                break;
-            }
+	switch (*p_num_bytes) {
+	case FCF_CHECK_OFFSET:
+		if (p_data[0] < IMM_ACK_LENGTH || p_data[0] > MAX_PACKET_SIZE) {
+			result = NRF_802154_RX_ERROR_INVALID_LENGTH;
+			break;
+		}
 
-            if (!frame_type_and_version_filter(frame_type, frame_version))
-            {
-                result = NRF_802154_RX_ERROR_INVALID_FRAME;
-                break;
-            }
+		if (!frame_type_and_version_filter(frame_type, frame_version)) {
+			printf("frame_type_and_version_filter didn't pass!!!!\n");
+			result = NRF_802154_RX_ERROR_INVALID_FRAME;
+			break;
+		}
 
-            if (!dst_addressing_may_be_present(frame_type))
-            {
-                result = NRF_802154_RX_ERROR_NONE;
-                break;
-            }
+		if (!dst_addressing_may_be_present(frame_type)) {
+			result = NRF_802154_RX_ERROR_NONE;
+			break;
+		}
 
-            result = dst_addressing_end_offset_get(p_data, p_num_bytes, frame_type, frame_version);
-            break;
+		result = dst_addressing_end_offset_get(
+			p_data, p_num_bytes, frame_type, frame_version);
+		printf("dst_addressing_end_offset_get result = %d!!!!\n",
+		       result);
+		break;
 
-        default:
-            result = dst_addr_check(p_data, frame_type);
-            break;
-    }
+	default:
+		result = dst_addr_check(p_data, frame_type);
+		printf("Dest addr check KURWAAAAAA!!!! %d\n", result);
+		break;
+	}
 
-    return result;
+	return result;
 }

@@ -192,7 +192,7 @@ static int filter(struct device *dev, bool set,
 {
 	int ret = 0;
 	uint8_t addr[2];
-	LOG_DBG("Applying filter %u", type);
+	LOG_INF("Applying filter %u", type);
 
 	if (!set) {
 		return ret;
@@ -226,42 +226,46 @@ static int set_txpower(struct device *dev, int16_t dbm)
 	return bs_radio_tx_power_set(dbm);
 }
 
-static int handle_ack(struct native_posix_802154_data *nrf5_radio)
+static int handle_ack()
 {
 	uint8_t ack_len =
-		nrf5_radio->ack_frame.psdu[0] - NATIVE_POSIX_FCS_LENGTH;
+		radio_data.ack_frame.psdu[0] /* - NATIVE_POSIX_FCS_LENGTH*/;
 	struct net_pkt *ack_pkt;
 	int err = 0;
 
-	ack_pkt = net_pkt_alloc_with_buffer(nrf5_radio->iface, ack_len,
+	ack_pkt = net_pkt_alloc_with_buffer(radio_data.iface, ack_len,
 					    AF_UNSPEC, 0, K_NO_WAIT);
 	if (!ack_pkt) {
 		LOG_ERR("No free packet available.");
 		err = -ENOMEM;
-		goto free_nrf_ack;
+		goto free_ack;
 	}
 
 	/* Upper layers expect the frame to start at the MAC header, skip the
 	 * PHY header (1 byte).
 	 */
-	if (net_pkt_write(ack_pkt, nrf5_radio->ack_frame.psdu + 1, ack_len) <
+	if (net_pkt_write(ack_pkt, radio_data.ack_frame.psdu + 1, ack_len) <
 	    0) {
 		LOG_ERR("Failed to write to a packet.");
 		err = -ENOMEM;
 		goto free_net_ack;
 	}
 
-	net_pkt_set_ieee802154_lqi(ack_pkt, nrf5_radio->ack_frame.lqi);
-	net_pkt_set_ieee802154_rssi(ack_pkt, nrf5_radio->ack_frame.rssi);
+	net_pkt_set_ieee802154_lqi(ack_pkt, radio_data.ack_frame.lqi);
+	net_pkt_set_ieee802154_rssi(ack_pkt, radio_data.ack_frame.rssi);
 
-	net_pkt_cursor_init(ack_pkt);
+	err = net_recv_data(radio_data.iface, ack_pkt);
+	if (err < 0) {
+		LOG_ERR("ACK packet dropped by NET stack");
+		goto free_net_ack;
+	}
 
 free_net_ack:
 	net_pkt_unref(ack_pkt);
 
-free_nrf_ack:
-	rx_frame_free(&nrf5_radio->ack_frame);
-	nrf5_radio->ack_frame.psdu = NULL;
+free_ack:
+	rx_frame_free(&radio_data.ack_frame);
+	radio_data.ack_frame.psdu = NULL;
 
 	return err;
 }
@@ -287,8 +291,6 @@ static int tx(struct device *dev, enum ieee802154_tx_mode mode,
 	int tx_result = -EIO;
 	bool ar_set;
 
-	rx_frame_free(&native_posix_radio->ack_frame);
-	native_posix_radio->ack_frame.psdu = NULL;
 	native_posix_radio->tx_psdu[0] =
 		payload_len; // + NATIVE_POSIX_FCS_LENGTH;
 	memcpy(native_posix_radio->tx_psdu + 1, payload, payload_len);
@@ -354,7 +356,7 @@ static int tx(struct device *dev, enum ieee802154_tx_mode mode,
 	}
 
 	LOG_INF("Ack has been received");
-	return handle_ack(native_posix_radio);
+	return 0;
 }
 
 static int start(struct device *dev)
@@ -365,6 +367,16 @@ static int start(struct device *dev)
 
 	LOG_INF("Native Posix radio started (channel: %d)",
 		bs_radio_channel_get());
+
+	/** TODO: Remove that For debug only */
+	printf("Pan id: 0x%x\n"
+		   "Pan coordinator: %d\n"
+	       "Ext addr: 0x%llx\n"
+		   "Short addr: 0x%x\n",
+		   *(uint16_t*)nrf_802154_pib_pan_id_get(),
+		   nrf_802154_pib_pan_coord_get(),
+		   *(uint64_t*)nrf_802154_pib_extended_address_get(),
+		   *(uint16_t*)nrf_802154_pib_short_address_get());
 
 	return 0;
 }
@@ -430,6 +442,8 @@ static int configure(struct device *dev, enum ieee802154_config_type type,
 		     const struct ieee802154_config *config)
 {
 	ARG_UNUSED(dev);
+
+	LOG_INF("Configure type: %u", type);
 
 	switch (type) {
 	case IEEE802154_CONFIG_AUTO_ACK_FPB:
@@ -515,30 +529,48 @@ static int configure(struct device *dev, enum ieee802154_config_type type,
 void on_rx_done(uint8_t *psdu, int8_t power, uint8_t lqi, uint32_t time)
 {
 	ARG_UNUSED(time);
-	const uint32_t rx_frames_size = ARRAY_SIZE(radio_data.rx_frames);
 
-	uint8_t frame_len = psdu[0];
-	uint8_t filter_error =
-		nrf_802154_filter_frame_part(psdu + 1, &frame_len);
+	const uint8_t frame_type = nrf_802154_frame_parser_frame_type_get(psdu);
+	const uint8_t frame_len = psdu[0];
+	const uint8_t num_bytes = frame_len;;
+	const uint8_t filter_error =
+		nrf_802154_filter_frame_part(psdu, &num_bytes);
 
-	printf("Frame error: %u\n", filter_error);
+	if (filter_error && !nrf_802154_pib_promiscuous_get()) {
+		LOG_DBG("Rejecting frame - Error (len = %d): %u\n", num_bytes, filter_error);
+		return;
+	}
 
-	if (FRAME_TYPE_ACK == nrf_802154_frame_parser_frame_type_get(psdu)) {
+	if (FRAME_TYPE_ACK == frame_type) {
 		if (0 != rx_frame_alloc(&radio_data.ack_frame, psdu[0] + 1)) {
 			posix_print_warning(
 				"Not enough memory to allocate rx buffer");
 			return;
 		}
 
-		memcpy(radio_data.ack_frame.psdu, psdu, psdu[0]);
+		memcpy(radio_data.ack_frame.psdu, psdu, psdu[0] + 1);
 		radio_data.ack_frame.time = time;
 		radio_data.ack_frame.rssi = power;
 		radio_data.ack_frame.lqi = lqi;
 
+		if (0 == handle_ack()) {
+			/* Notify tx functuon that ack has been received */
+			k_sem_give(&radio_data.tx_ack_wait);
+		}
+
 		return;
 	}
 
-	for (uint32_t i = 0; i < rx_frames_size; i++) {
+	if (nrf_802154_frame_parser_ar_bit_is_set(psdu) &&
+	    nrf_802154_pib_auto_ack_get() &&
+		!filter_error) {
+		uint8_t *ack_frame = nrf_802154_ack_generator_create(psdu);
+		/** TODO: Remove this log */
+		LOG_INF("ACK has len %d\n", ack_frame[0]);
+		send_ack(ack_frame);
+	}
+
+	for (uint32_t i = 0; i < ARRAY_SIZE(radio_data.rx_frames); i++) {
 		if (radio_data.rx_frames[i].psdu != NULL) {
 			continue;
 		}
@@ -590,6 +622,7 @@ static void bs_radio_event_cb(struct bs_radio_event_data *event_data)
 		/* TODO: Get power, lqi, timeout */
 		break;
 	case BS_RADIO_EVENT_RX_DONE: {
+		/** TODO: Remove these variables used only for logging */
 		uint8_t frame_type = nrf_802154_frame_parser_frame_type_get(
 			event_data->rx_done.psdu);
 		bool ar_set = nrf_802154_frame_parser_ar_bit_is_set(
@@ -601,18 +634,8 @@ static void bs_radio_event_cb(struct bs_radio_event_data *event_data)
 			frame_type, event_data->rx_done.psdu[0],
 			event_data->rx_done.rssi, ar_set);
 
-		if (ar_set && nrf_802154_pib_auto_ack_get()) {
-			uint8_t *ack_frame = nrf_802154_ack_generator_create(
-				event_data->rx_done.psdu);
-			send_ack(ack_frame);
-		}
-
 		on_rx_done(event_data->rx_done.psdu, event_data->rx_done.rssi,
 			   0, 0);
-		if (FRAME_TYPE_ACK == frame_type) {
-			LOG_INF("Giving ack semaphore");
-			k_sem_give(&radio_data.tx_ack_wait);
-		}
 		break;
 	}
 	case BS_RADIO_EVENT_RX_FAILED:
