@@ -33,7 +33,11 @@ static uint64_t end_of_time = NEVER; /* When will this device stop */
 extern uint64_t hw_timer_timer; /* When should this timer_model be called */
 extern uint64_t irq_ctrl_timer;
 extern uint64_t hw_counter_timer;
+
+#ifdef CONFIG_USE_BABBLESIM
 extern uint64_t bs_radio_timer;
+#endif /*CONFIG_USE_BABBLESIM */
+
 #ifdef CONFIG_HAS_SDL
 extern uint64_t sdl_event_timer;
 #endif
@@ -42,7 +46,9 @@ static enum {
 	HWTIMER = 0,
 	IRQCNT,
 	HW_COUNTER,
+#ifdef CONFIG_USE_BABBLESIM
 	BS_RADIO,
+#endif /* CONFIG_USE_BABBLESIM */
 #ifdef CONFIG_HAS_SDL
 	SDLEVENTTIMER,
 #endif
@@ -54,7 +60,9 @@ static uint64_t *Timer_list[NUMBER_OF_TIMERS] = {
 	&hw_timer_timer,
 	&irq_ctrl_timer,
 	&hw_counter_timer,
+#ifdef CONFIG_USE_BABBLESIM
 	&bs_radio_timer,
+#endif /* CONFIG_USE_BABBLESIM */
 #ifdef CONFIG_HAS_SDL
 	&sdl_event_timer,
 #endif
@@ -160,9 +168,11 @@ void hwm_main_loop(void)
 		case HW_COUNTER:
 			hw_counter_triggered();
 			break;
+#ifdef CONFIG_USE_BABBLESIM
 		case BS_RADIO:
 			bs_radio_triggered();
 			break;
+#endif
 #ifdef CONFIG_HAS_SDL
 		case SDLEVENTTIMER:
 			sdl_handle_events();
@@ -208,7 +218,9 @@ void hwm_init(void)
 {
 	hwm_set_sig_handler();
 	hwtimer_init();
+#if CONFIG_USE_BABBLESIM
 	bs_radio_init();
+#endif /* CONFIG_USE_BABBLESIM */
 	hw_counter_init();
 	hw_irq_ctrl_init();
 	

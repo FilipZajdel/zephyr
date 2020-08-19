@@ -37,7 +37,7 @@ bool bs_radio_argparse_validate(void)
 	if (bs_args.is_bsim) {
 		if (!p_id_set || !s_id_set || !dev_nbr_set) {
 			posix_print_warning(
-				"%s%s%snot set. It must be set to run the "
+				"%s%s%snot set. It must be set prior to run the "
 				"simulation\n\n",
 				!p_id_set ? "[p_id] " : "",
 				!s_id_set ? "[s_id] " : "",

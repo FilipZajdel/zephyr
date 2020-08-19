@@ -29,8 +29,6 @@ zephyr_library_sources(
 	cmdline_common.c
 	cmdline.c
 	hw_counter.c
-	bs_radio.c
-	bs_radio_argparse.c
 )
 
 zephyr_library_include_directories(
@@ -41,6 +39,24 @@ zephyr_library_include_directories(
   ${ZEPHYR_BASE}/kernel/include
   ${ZEPHYR_BASE}/arch/posix/include
 )
+
+if(CONFIG_USE_BABBLESIM)
+  zephyr_library_sources(bs_radio.c
+  						 bs_radio_argparse.c)
+
+  zephyr_library_include_directories(
+	$ENV{BSIM_COMPONENTS_PATH}/libUtilv1/src/
+  	$ENV{BSIM_COMPONENTS_PATH}/libPhyComv1/src/
+  	$ENV{BSIM_COMPONENTS_PATH}/libRandv2/src/
+  	$ENV{BSIM_COMPONENTS_PATH}/ext_2G4_libPhyComv1/src/
+  )
+
+  set(bsim_lib_path $ENV{BSIM_OUT_PATH}/lib)
+  zephyr_library_import(bsim_libUtilv1	  ${bsim_lib_path}/libUtilv1.32.a)
+  zephyr_library_import(bsim_libPhyComv1    ${bsim_lib_path}/libPhyComv1.32.a)
+  zephyr_library_import(bsim_lib2G4PhyComv1 ${bsim_lib_path}/lib2G4PhyComv1.32.a)
+  zephyr_library_import(bsim_libRandv2      ${bsim_lib_path}/libRandv2.32.a)
+endif()
 
 if(CONFIG_HAS_SDL)
 	find_package(PkgConfig REQUIRED)
@@ -55,11 +71,6 @@ zephyr_ld_options(
   -lm
 )
 
-set(libpath $ENV{BSIM_OUT_PATH}/lib)
-zephyr_library_import(bsim_libUtilv1	  ${libpath}/libUtilv1.32.a)
-zephyr_library_import(bsim_libPhyComv1    ${libpath}/libPhyComv1.32.a)
-zephyr_library_import(bsim_lib2G4PhyComv1 ${libpath}/lib2G4PhyComv1.32.a)
-zephyr_library_import(bsim_libRandv2      ${libpath}/libRandv2.32.a)
 
 # Override the C standard used for compilation to C 2011
 # This is due to some tests using _Static_assert which is a 2011 feature, but

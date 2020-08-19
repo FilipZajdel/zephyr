@@ -117,7 +117,10 @@ void native_handle_cmd_line(int argc, char *argv[])
 
 	native_add_tracing_options();
 	native_add_testargs_option();
+
+#if CONFIG_USE_BABBLESIM
 	bs_radio_argparse_add_options();
+#endif /* CONFIG_USE_BABBLESIM */
 
 	s_argv = argv;
 	s_argc = argc;
@@ -137,10 +140,12 @@ void native_handle_cmd_line(int argc, char *argv[])
 		}
 	}
 
+#if CONFIG_USE_BABBLESIM
 	if (!bs_radio_argparse_validate()) {
 		cmd_print_switches_help(args_struct);
 		posix_print_error_and_exit("Incorrect BabbleSim configuration\n");
 	}
+#endif /* CONFIG_USE_BABBLESIM */
 }
 
 /**
