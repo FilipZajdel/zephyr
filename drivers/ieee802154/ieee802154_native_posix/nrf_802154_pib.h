@@ -108,13 +108,6 @@ uint8_t nrf_802154_pib_channel_get(void);
 void nrf_802154_pib_channel_set(uint8_t channel);
 
 /**
- * @brief Gets the transmit power.
- *
- * @returns  Transmit power in dBm.
- */
-int8_t nrf_802154_pib_tx_power_get(void);
-
-/**
  * @brief Sets the transmit power used for ACK frames.
  *
  * @param[in]  dbm  Transmit power in dBm.

@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+
+zephyr_sources_ifdef(CONFIG_IEEE802154_NATIVE_POSIX ieee802154_native_posix.c)
+zephyr_sources_ifdef(CONFIG_IEEE802154_NATIVE_POSIX nrf_802154_filter.c)
+zephyr_sources_ifdef(CONFIG_IEEE802154_NATIVE_POSIX nrf_802154_frame_parser.c)
+zephyr_sources_ifdef(CONFIG_IEEE802154_NATIVE_POSIX nrf_802154_pib.c)
+zephyr_sources_ifdef(CONFIG_IEEE802154_NATIVE_POSIX ack_generator/nrf_802154_ack_data.c)
+zephyr_sources_ifdef(CONFIG_IEEE802154_NATIVE_POSIX ack_generator/nrf_802154_ack_generator.c)
+zephyr_sources_ifdef(CONFIG_IEEE802154_NATIVE_POSIX ack_generator/nrf_802154_enh_ack_generator.c)
+zephyr_sources_ifdef(CONFIG_IEEE802154_NATIVE_POSIX ack_generator/nrf_802154_imm_ack_generator.c)

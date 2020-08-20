@@ -15,8 +15,8 @@ struct bs_radio_args {
 };
 
 void bs_radio_argparse_add_options(void);
-void bs_radio_argparse_summary(void);
 struct bs_radio_args *bs_radio_argparse_get(void);
+bool bs_radio_argparse_validate(void);
 
 #ifdef __cplusplus
 }

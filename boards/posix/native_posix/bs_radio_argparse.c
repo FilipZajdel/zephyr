@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "cmdline.h"
+#include <arch/posix/posix_soc_if.h>
 
 static struct bs_radio_args bs_args;
 

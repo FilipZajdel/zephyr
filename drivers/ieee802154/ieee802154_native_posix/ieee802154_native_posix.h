@@ -8,11 +8,11 @@
 #ifndef ZEPHYR_DRIVERS_IEEE802154_IEEE802154_NATIVE_POSIX_H_
 #define ZEPHYR_DRIVERS_IEEE802154_IEEE802154_NATIVE_POSIX_H_
 
-#define NATIVE_POSIX_FCS_LENGTH   (2)
-#define NATIVE_POSIX_PSDU_LENGTH  (125)
-#define NATIVE_POSIX_PHR_LENGTH   (1)
+#define NATIVE_POSIX_802154_FCS_LENGTH   (2)
+#define NATIVE_POSIX_802154_PSDU_LENGTH  (125)
+#define NATIVE_POSIX_802154_PHR_LENGTH   (1)
 #define NATIVE_POSIX_802154_RX_BUFFERS (20)
-#define NATIVE_POSIX_IEEE802154_RX_STACK_SIZE	(4096)
+#define NATIVE_POSIX_802154_RX_STACK_SIZE	(4096)
 
 #include <stdint.h>
 #include <zephyr.h>
@@ -56,7 +56,7 @@ struct native_posix_802154_data {
 	uint8_t mac[8];
 
 	/* RX thread stack. */
-	K_THREAD_STACK_MEMBER(rx_stack, NATIVE_POSIX_IEEE802154_RX_STACK_SIZE);
+	K_THREAD_STACK_MEMBER(rx_stack, NATIVE_POSIX_802154_RX_STACK_SIZE);
 
 	/* RX thread control block. */
 	struct k_thread rx_thread;
@@ -72,9 +72,6 @@ struct native_posix_802154_data {
 	/* Frame pending bit value in ACK sent for the last received frame. */
 	bool last_frame_ack_fpb;
 
-	/* CCA complete sempahore. Unlocked when CCA is complete. */
-	struct k_sem cca_wait;
-
 	/* CCA result. Holds information whether channel is free or not. */
 	bool channel_free;
 
@@ -89,7 +86,7 @@ struct native_posix_802154_data {
 	/* TX buffer. First byte is PHR (length), remaining bytes are
 	 * MPDU data.
 	 */
-	uint8_t tx_psdu[NATIVE_POSIX_PHR_LENGTH + NATIVE_POSIX_PSDU_LENGTH + NATIVE_POSIX_FCS_LENGTH];
+	uint8_t tx_psdu[NATIVE_POSIX_802154_PHR_LENGTH + NATIVE_POSIX_802154_PSDU_LENGTH + NATIVE_POSIX_802154_FCS_LENGTH];
 
 	/* TX result, updated in radio transmit callbacks. */
 	uint8_t tx_result;

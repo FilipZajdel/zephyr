@@ -15,6 +15,7 @@ LOG_MODULE_REGISTER(wpancmd);
 #include <ieee802154/ieee802154_frame.h>
 #include <net_private.h>
 #include "config_parser.h"
+#include "posix_board_if.h"
 
 #define CFG_COLS_OFFSET 4
 #define TEST_CONFIG_FILENAME "../../../test_data"
@@ -103,19 +104,6 @@ static void example_cleanup()
         }
 }
 
-static int net_pkt_fill(struct net_pkt **pkt, uint8_t *bytes, uint8_t len)
-{
-	/* Maximum 2 bytes are added to the len */
-	*pkt = net_pkt_alloc_with_buffer(NULL, len, AF_UNSPEC, 0, K_NO_WAIT);
-	if (!(*pkt)) {
-		return -ENOMEM;
-	}
-
-	net_pkt_write(*pkt, bytes, len);
-	printk("pkt %p len %u\n", *pkt, len);
-	return 0;
-}
-
 int net_recv_data(struct net_if *iface, struct net_pkt *pkt)
 {
 	size_t len = net_pkt_get_len(pkt);
@@ -159,18 +147,6 @@ out:
 	radio_configure(&test_data.configs[test_data.ctr++]);
 
 	return ret;
-}
-
-/** Configure incoming addresses */
-static void device_addr_configure(const uint8_t *addr, bool extended, bool set)
-{
-	const struct ieee802154_config config = { .ack_fpb.addr =
-							  (uint8_t *)addr,
-						  .ack_fpb.extended = extended,
-						  .ack_fpb.enabled = set };
-
-	radio_api->configure(ieee802154_dev, IEEE802154_CONFIG_ACK_FPB,
-			     &config);
 }
 
 /** Configure addresses of this device */

@@ -1,9 +1,8 @@
 sample:
-  description: Test wpanusb sample
-  name: wpanusb
+  description: Test native posix 802.15.4 radio_api driver
+  name: native_posix802154_test
 common:
-  depends_on: usb_device
-  tags: net ieee802154 usb
+  tags: net ieee802154
   harness: net
 tests:
   sample.net.wpanusb:

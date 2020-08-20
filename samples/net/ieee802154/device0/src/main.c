@@ -1,8 +1,9 @@
 /*
- * Copyright (c) 2016-2019 Intel Corporation
+ * Copyright (c) 2020 Nordic Semiconductor
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+
 #define LOG_LEVEL 4
 #include <logging/log.h>
 LOG_MODULE_REGISTER(wpancmd);
@@ -18,6 +19,8 @@ LOG_MODULE_REGISTER(wpancmd);
 #include <ieee802154/ieee802154_frame.h>
 #include <net_private.h>
 #include "config_parser.h"
+
+#include "posix_board_if.h"
 
 #define TEST_WAIT_FOR_RX_TIMEOUT_MS (1000)
 #define TEST_DATA_FILE "../../../test_data"
@@ -71,14 +74,10 @@ static ieee802154_test_t test_data = { .tx = NULL,
 static int tx(struct net_pkt *pkt)
 {
 	struct net_buf *buf = net_buf_frag_last(pkt->buffer);
-	int retries = 3;
 	int ret;
 
-	do {
-		ret = radio_api->tx(ieee802154_dev, IEEE802154_TX_MODE_DIRECT,
-				    pkt, buf);
-	} while (ret && retries--);
-
+	ret = radio_api->tx(ieee802154_dev, IEEE802154_TX_MODE_DIRECT, pkt,
+			    buf);
 	if (ret) {
 		printk("Error sending data\n");
 	}
@@ -163,18 +162,6 @@ out:
 	net_pkt_unref(pkt);
 
 	return ret;
-}
-
-/** Configure incoming addresses */
-static void device_addr_configure(const uint8_t *addr, bool extended, bool set)
-{
-	const struct ieee802154_config config = { .ack_fpb.addr =
-							  (uint8_t *)addr,
-						  .ack_fpb.extended = extended,
-						  .ack_fpb.enabled = set };
-
-	radio_api->configure(ieee802154_dev, IEEE802154_CONFIG_ACK_FPB,
-			     &config);
 }
 
 /** Configure addresses of this device */
@@ -405,7 +392,9 @@ static void execute_tests(void)
 						   test_data.actual_rx[0])) {
 						test_data.results[test_data.ctr] =
 							true;
+                                                printf("Test Result is True\n");
 					} else {
+                                                printf("Test Result is False\n");
 						test_data.results[test_data.ctr] =
 							false;
 					}
@@ -448,7 +437,7 @@ void main(void)
 	/* Give some time receivers to start receiving */
 	k_msleep(100);
 
-        /* Start tests execution */
+	/* Start tests execution */
 	execute_tests();
 
 	/* Cleanup */

@@ -158,6 +158,7 @@
 
 #define BROADCAST_ADDRESS            ((uint8_t[SHORT_ADDRESS_SIZE]) {0xff, 0xff}) ///< Broadcast short address.
 
+
 typedef enum
 {
     REQ_ORIG_HIGHER_LAYER,

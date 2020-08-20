@@ -174,7 +174,6 @@ dst_addressing_end_offset_get_2006(const uint8_t *p_data, uint8_t *p_num_bytes,
 				break;
 
 			default:
-				printf("DEST_ADDR_TYPE_NONE\n");
 				result = NRF_802154_RX_ERROR_INVALID_FRAME;
 			}
 		} else {
@@ -389,7 +388,6 @@ static nrf_802154_rx_error_t dst_addr_check(const uint8_t *p_data,
 	}
 
 	if (mhr_data.p_dst_panid != NULL) {
-		printf("dest pan id check frame_type = %u\n", frame_type);
 		if (!dst_pan_id_check(mhr_data.p_dst_panid, frame_type)) {
 			return NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
 		}
@@ -397,16 +395,11 @@ static nrf_802154_rx_error_t dst_addr_check(const uint8_t *p_data,
 
 	switch (mhr_data.dst_addr_size) {
 	case SHORT_ADDRESS_SIZE:
-		/** TODO: Remove this log */
-		printf("Short address check\treceived: %x,set:%x\n",
-		       *(uint16_t *)mhr_data.p_dst_addr,
-		       *(uint16_t *)nrf_802154_pib_short_address_get());
 		return dst_short_addr_check(mhr_data.p_dst_addr, frame_type) ?
 			       NRF_802154_RX_ERROR_NONE :
 			       NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
 
 	case EXTENDED_ADDRESS_SIZE:
-		printf("Extended address check\n");
 		return dst_extended_addr_check(mhr_data.p_dst_addr,
 					       frame_type) ?
 			       NRF_802154_RX_ERROR_NONE :
@@ -415,7 +408,6 @@ static nrf_802154_rx_error_t dst_addr_check(const uint8_t *p_data,
 	case 0:
 		// Allow frames destined to the Pan Coordinator without destination address or
 		// beacon frames without destination address
-		printf("Pib pan coord get\n");
 		return (nrf_802154_pib_pan_coord_get() ||
 			(frame_type == FRAME_TYPE_BEACON)) ?
 			       NRF_802154_RX_ERROR_NONE :
@@ -444,7 +436,6 @@ nrf_802154_rx_error_t nrf_802154_filter_frame_part(const uint8_t *p_data,
 		}
 
 		if (!frame_type_and_version_filter(frame_type, frame_version)) {
-			printf("frame_type_and_version_filter didn't pass!!!!\n");
 			result = NRF_802154_RX_ERROR_INVALID_FRAME;
 			break;
 		}
@@ -456,8 +447,6 @@ nrf_802154_rx_error_t nrf_802154_filter_frame_part(const uint8_t *p_data,
 
 		result = dst_addressing_end_offset_get(
 			p_data, p_num_bytes, frame_type, frame_version);
-		printf("dst_addressing_end_offset_get result = %d!!!!\n",
-		       result);
 		break;
 
 	default:
