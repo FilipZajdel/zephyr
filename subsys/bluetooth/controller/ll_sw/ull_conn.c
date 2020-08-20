@@ -265,7 +265,7 @@ uint8_t ll_conn_update(uint16_t handle, uint8_t cmd, uint8_t status, uint16_t in
 
 	conn = ll_connected_get(handle);
 	if (!conn) {
-		return BT_HCI_ERR_CMD_DISALLOWED;
+		return BT_HCI_ERR_UNKNOWN_CONN_ID;
 	}
 
 	if (!cmd) {
@@ -345,7 +345,7 @@ uint8_t ll_chm_get(uint16_t handle, uint8_t *chm)
 
 	conn = ll_connected_get(handle);
 	if (!conn) {
-		return BT_HCI_ERR_CMD_DISALLOWED;
+		return BT_HCI_ERR_UNKNOWN_CONN_ID;
 	}
 
 	/* Iterate until we are sure the ISR did not modify the value while
@@ -366,7 +366,7 @@ uint8_t ll_terminate_ind_send(uint16_t handle, uint8_t reason)
 
 	conn = ll_connected_get(handle);
 	if (!conn) {
-		return BT_HCI_ERR_CMD_DISALLOWED;
+		return BT_HCI_ERR_UNKNOWN_CONN_ID;
 	}
 
 	conn->llcp_terminate.reason_own = reason;
@@ -382,7 +382,7 @@ uint8_t ll_feature_req_send(uint16_t handle)
 
 	conn = ll_connected_get(handle);
 	if (!conn) {
-		return BT_HCI_ERR_CMD_DISALLOWED;
+		return BT_HCI_ERR_UNKNOWN_CONN_ID;
 	}
 
 	if (conn->llcp_feature.req != conn->llcp_feature.ack) {
@@ -400,7 +400,7 @@ uint8_t ll_version_ind_send(uint16_t handle)
 
 	conn = ll_connected_get(handle);
 	if (!conn) {
-		return BT_HCI_ERR_CMD_DISALLOWED;
+		return BT_HCI_ERR_UNKNOWN_CONN_ID;
 	}
 
 	if (conn->llcp_version.req != conn->llcp_version.ack) {
@@ -560,7 +560,7 @@ uint8_t ll_rssi_get(uint16_t handle, uint8_t *rssi)
 
 	conn = ll_connected_get(handle);
 	if (!conn) {
-		return BT_HCI_ERR_CMD_DISALLOWED;
+		return BT_HCI_ERR_UNKNOWN_CONN_ID;
 	}
 
 	*rssi = conn->lll.rssi_latest;
@@ -1658,7 +1658,7 @@ static void ticker_op_stop_cb(uint32_t status, void *param)
 
 static inline void disable(uint16_t handle)
 {
-	volatile uint32_t ret_cb = TICKER_STATUS_BUSY;
+	uint32_t volatile ret_cb;
 	struct ll_conn *conn;
 	void *mark;
 	uint32_t ret;
@@ -1668,10 +1668,10 @@ static inline void disable(uint16_t handle)
 	mark = ull_disable_mark(conn);
 	LL_ASSERT(mark == conn);
 
+	ret_cb = TICKER_STATUS_BUSY;
 	ret = ticker_stop(TICKER_INSTANCE_ID_CTLR, TICKER_USER_ID_THREAD,
 			  TICKER_ID_CONN_BASE + handle,
 			  ull_ticker_status_give, (void *)&ret_cb);
-
 	ret = ull_ticker_status_take(ret, &ret_cb);
 	if (!ret) {
 		ret = ull_disable(&conn->lll);

@@ -219,7 +219,7 @@ static void radio_init(void)
 
 	if (ieee802154_dev) {
 		radio_api = (struct ieee802154_radio_api *)
-				    ieee802154_dev->driver_api;
+				    ieee802154_dev->api;
 	} else {
 		printk("Couldn't bind %s\n",
 		       CONFIG_IEEE802154_NATIVE_POSIX_DRV_NAME);

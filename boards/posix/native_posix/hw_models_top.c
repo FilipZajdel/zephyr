@@ -222,8 +222,6 @@ void hwm_init(void)
 	bs_radio_init();
 #endif /* CONFIG_USE_BABBLESIM */
 	hw_counter_init();
-	hw_irq_ctrl_init();
-	
 	hwm_find_next_timer();
 }
 

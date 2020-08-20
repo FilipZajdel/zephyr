@@ -57,7 +57,7 @@ uint8_t ll_adv_aux_random_addr_set(uint8_t handle, uint8_t const *const addr)
 
 	adv = ull_adv_is_created_get(handle);
 	if (!adv) {
-		return BT_HCI_ERR_CMD_DISALLOWED;
+		return BT_HCI_ERR_UNKNOWN_ADV_IDENTIFIER;
 	}
 
 	/* TODO: Fail if connectable advertising is enabled */
@@ -117,7 +117,7 @@ uint8_t ll_adv_aux_ad_data_set(uint8_t handle, uint8_t op, uint8_t frag_pref, ui
 	/* Get the advertising set instance */
 	adv = ull_adv_is_created_get(handle);
 	if (!adv) {
-		return BT_HCI_ERR_CMD_DISALLOWED;
+		return BT_HCI_ERR_UNKNOWN_ADV_IDENTIFIER;
 	}
 
 	lll = &adv->lll;
@@ -464,7 +464,7 @@ uint8_t ll_adv_aux_ad_data_set(uint8_t handle, uint8_t op, uint8_t frag_pref, ui
 
 	if (adv->is_enabled && !aux->is_started) {
 		uint32_t ticks_slot_overhead;
-		volatile uint32_t ret_cb;
+		uint32_t volatile ret_cb;
 		uint32_t ticks_anchor;
 		uint32_t ret;
 
@@ -480,7 +480,6 @@ uint8_t ll_adv_aux_ad_data_set(uint8_t handle, uint8_t op, uint8_t frag_pref, ui
 
 		ret = ull_adv_aux_start(aux, ticks_anchor, ticks_slot_overhead,
 					&ret_cb);
-
 		ret = ull_ticker_status_take(ret, &ret_cb);
 		if (ret != TICKER_STATUS_SUCCESS) {
 			/* FIXME: Use a better error code */
@@ -518,7 +517,7 @@ uint8_t ll_adv_aux_sr_data_set(uint8_t handle, uint8_t op, uint8_t frag_pref, ui
 	/* Get the advertising set instance */
 	adv = ull_adv_is_created_get(handle);
 	if (!adv) {
-		return BT_HCI_ERR_CMD_DISALLOWED;
+		return BT_HCI_ERR_UNKNOWN_ADV_IDENTIFIER;
 	}
 
 	lll = &adv->lll;
@@ -553,16 +552,61 @@ uint8_t ll_adv_aux_set_count_get(void)
 
 uint8_t ll_adv_aux_set_remove(uint8_t handle)
 {
-	/* TODO: reset/release primary channel and Aux channel PDUs */
-	return 0;
+	struct ll_adv_set *adv;
+	struct lll_adv *lll;
+
+	/* Get the advertising set instance */
+	adv = ull_adv_is_created_get(handle);
+	if (!adv) {
+		return BT_HCI_ERR_UNKNOWN_ADV_IDENTIFIER;
+	}
+
+	if (adv->is_enabled) {
+		return BT_HCI_ERR_CMD_DISALLOWED;
+	}
+
+	lll = &adv->lll;
+
+#if defined(CONFIG_BT_CTLR_ADV_PERIODIC)
+	if (lll->sync) {
+		struct ll_adv_sync_set *sync;
+
+		sync = (void *)HDR_LLL2EVT(lll->sync);
+
+		if (sync->is_enabled) {
+			return BT_HCI_ERR_CMD_DISALLOWED;
+		}
+	}
+#endif /* CONFIG_BT_CTLR_ADV_PERIODIC */
+
+	/* Release auxiliary channel set */
+	if (lll->aux) {
+		struct ll_adv_aux_set *aux;
+
+		aux = (void *)HDR_LLL2EVT(lll->aux);
+
+		ull_adv_aux_release(aux);
+	}
+
+	adv->is_created = 0;
+
+	return BT_HCI_ERR_SUCCESS;
 }
 
 uint8_t ll_adv_aux_set_clear(void)
 {
-	/* TODO: reset/release all adv set primary channel and  Aux channel
-	 * PDUs
-	 */
-	return 0;
+	uint8_t retval = BT_HCI_ERR_SUCCESS;
+	uint8_t handle;
+	uint8_t err;
+
+	for (handle = 0; handle < BT_CTLR_ADV_SET; ++handle) {
+		err = ll_adv_aux_set_remove(handle);
+		if (err == BT_HCI_ERR_CMD_DISALLOWED) {
+			retval = err;
+		}
+	}
+
+	return retval;
 }
 
 int ull_adv_aux_init(void)
@@ -646,7 +690,7 @@ uint32_t ull_adv_aux_start(struct ll_adv_aux_set *aux, uint32_t ticks_anchor,
 
 uint8_t ull_adv_aux_stop(struct ll_adv_aux_set *aux)
 {
-	volatile uint32_t ret_cb = TICKER_STATUS_BUSY;
+	uint32_t volatile ret_cb;
 	uint8_t aux_handle;
 	void *mark;
 	uint32_t ret;
@@ -656,10 +700,10 @@ uint8_t ull_adv_aux_stop(struct ll_adv_aux_set *aux)
 
 	aux_handle = aux_handle_get(aux);
 
+	ret_cb = TICKER_STATUS_BUSY;
 	ret = ticker_stop(TICKER_INSTANCE_ID_CTLR, TICKER_USER_ID_THREAD,
 			  TICKER_ID_ADV_AUX_BASE + aux_handle,
 			  ull_ticker_status_give, (void *)&ret_cb);
-
 	ret = ull_ticker_status_take(ret, &ret_cb);
 	if (ret) {
 		mark = ull_disable_mark(aux);
@@ -793,12 +837,13 @@ static void mfy_aux_offset_get(void *param)
 	ticks_current = 0U;
 	retry = 4U;
 	do {
-		uint32_t volatile ret_cb = TICKER_STATUS_BUSY;
+		uint32_t volatile ret_cb;
 		uint32_t ticks_previous;
 		uint32_t ret;
 
 		ticks_previous = ticks_current;
 
+		ret_cb = TICKER_STATUS_BUSY;
 		ret = ticker_next_slot_get(TICKER_INSTANCE_ID_CTLR,
 					   TICKER_USER_ID_ULL_LOW,
 					   &id,

@@ -44,7 +44,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include "_native_posix_headers.h"
 
 #define NATIVE_POSIX_802154_DATA(dev)                                          \
-	((struct native_posix_802154_data *const)(dev)->driver_data)
+	((struct native_posix_802154_data *const)(dev)->data)
 #define RX_THREAD_NAME "802154_rx_loop"
 
 static struct native_posix_802154_data radio_data;

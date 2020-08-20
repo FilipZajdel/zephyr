@@ -62,7 +62,7 @@ FUNC_NORETURN static void generic_exc_handle(unsigned int vector,
 }
 
 #define _EXC_FUNC(vector) \
-FUNC_NORETURN void handle_exc_##vector(const z_arch_esf_t *pEsf) \
+FUNC_NORETURN __used static void handle_exc_##vector(const z_arch_esf_t *pEsf) \
 { \
 	generic_exc_handle(vector, pEsf); \
 }
@@ -181,7 +181,7 @@ static FUNC_NORETURN __used void df_handler_top(void)
 	_df_esf.eflags = _main_tss.eflags;
 
 	/* Restore the main IA task to a runnable state */
-	_main_tss.esp = (uint32_t)(ARCH_THREAD_STACK_BUFFER(
+	_main_tss.esp = (uint32_t)(Z_KERNEL_STACK_BUFFER(
 		z_interrupt_stacks[0]) + CONFIG_ISR_STACK_SIZE);
 	_main_tss.cs = CODE_SEG;
 	_main_tss.ds = DATA_SEG;

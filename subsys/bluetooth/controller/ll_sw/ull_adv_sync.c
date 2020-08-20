@@ -43,6 +43,10 @@ static inline void sync_release(struct ll_adv_sync_set *sync);
 static inline uint16_t sync_handle_get(struct ll_adv_sync_set *sync);
 static inline uint8_t sync_stop(struct ll_adv_sync_set *sync);
 static void mfy_sync_offset_get(void *param);
+static inline struct pdu_adv_sync_info *sync_info_get(struct pdu_adv *pdu);
+static inline void sync_info_offset_fill(struct pdu_adv_sync_info *si,
+					 uint32_t ticks_offset,
+					 uint32_t start_us);
 static void ticker_cb(uint32_t ticks_at_expire, uint32_t remainder,
 		      uint16_t lazy, void *param);
 static void ticker_op_cb(uint32_t status, void *param);
@@ -63,7 +67,7 @@ uint8_t ll_adv_sync_param_set(uint8_t handle, uint16_t interval, uint16_t flags)
 
 	adv = ull_adv_is_created_get(handle);
 	if (!adv) {
-		return BT_HCI_ERR_CMD_DISALLOWED;
+		return BT_HCI_ERR_UNKNOWN_ADV_IDENTIFIER;
 	}
 
 	lll_sync = adv->lll.sync;
@@ -528,7 +532,7 @@ uint8_t ll_adv_sync_enable(uint8_t handle, uint8_t enable)
 
 	adv = ull_adv_is_created_get(handle);
 	if (!adv) {
-		return BT_HCI_ERR_CMD_DISALLOWED;
+		return BT_HCI_ERR_UNKNOWN_ADV_IDENTIFIER;
 	}
 
 	lll_sync = adv->lll.sync;
@@ -696,7 +700,7 @@ static inline uint16_t sync_handle_get(struct ll_adv_sync_set *sync)
 
 static inline uint8_t sync_stop(struct ll_adv_sync_set *sync)
 {
-	volatile uint32_t ret_cb = TICKER_STATUS_BUSY;
+	uint32_t volatile ret_cb;
 	uint8_t sync_handle;
 	void *mark;
 	uint32_t ret;
@@ -706,10 +710,10 @@ static inline uint8_t sync_stop(struct ll_adv_sync_set *sync)
 
 	sync_handle = sync_handle_get(sync);
 
+	ret_cb = TICKER_STATUS_BUSY;
 	ret = ticker_stop(TICKER_INSTANCE_ID_CTLR, TICKER_USER_ID_THREAD,
 			  TICKER_ID_ADV_SYNC_BASE + sync_handle,
 			  ull_ticker_status_give, (void *)&ret_cb);
-
 	ret = ull_ticker_status_take(ret, &ret_cb);
 	if (ret) {
 		mark = ull_disable_mark(sync);
@@ -730,7 +734,9 @@ static inline uint8_t sync_stop(struct ll_adv_sync_set *sync)
 static void mfy_sync_offset_get(void *param)
 {
 	struct ll_adv_set *adv = param;
+	struct lll_adv_sync *lll_sync;
 	struct ll_adv_sync_set *sync;
+	struct pdu_adv_sync_info *si;
 	uint32_t ticks_to_expire;
 	uint32_t ticks_current;
 	struct pdu_adv *pdu;
@@ -738,7 +744,8 @@ static void mfy_sync_offset_get(void *param)
 	uint8_t retry;
 	uint8_t id;
 
-	sync = (void *)HDR_LLL2EVT(adv->lll.sync);
+	lll_sync = adv->lll.sync;
+	sync = (void *)HDR_LLL2EVT(lll_sync);
 	ticker_id = TICKER_ID_ADV_SYNC_BASE + sync_handle_get(sync);
 
 	id = TICKER_NULL;
@@ -746,12 +753,13 @@ static void mfy_sync_offset_get(void *param)
 	ticks_current = 0U;
 	retry = 4U;
 	do {
-		uint32_t volatile ret_cb = TICKER_STATUS_BUSY;
+		uint32_t volatile ret_cb;
 		uint32_t ticks_previous;
 		uint32_t ret;
 
 		ticks_previous = ticks_current;
 
+		ret_cb = TICKER_STATUS_BUSY;
 		ret = ticker_next_slot_get(TICKER_INSTANCE_ID_CTLR,
 					   TICKER_USER_ID_ULL_LOW,
 					   &id,
@@ -774,10 +782,51 @@ static void mfy_sync_offset_get(void *param)
 	/* NOTE: as remainder not used in scheduling primary PDU
 	 * packet timer starts transmission after 1 tick hence the +1.
 	 */
-	sync->lll.ticks_offset = ticks_to_expire + 1;
+	lll_sync->ticks_offset = ticks_to_expire + 1;
 
 	pdu = lll_adv_aux_data_curr_get(adv->lll.aux);
-	lll_adv_sync_offset_fill(ticks_to_expire, 0, pdu);
+	si = sync_info_get(pdu);
+	sync_info_offset_fill(si, ticks_to_expire, 0);
+	si->evt_cntr = lll_sync->event_counter + lll_sync->latency_prepare;
+}
+
+static inline struct pdu_adv_sync_info *sync_info_get(struct pdu_adv *pdu)
+{
+	struct pdu_adv_com_ext_adv *p;
+	struct pdu_adv_hdr *h;
+	uint8_t *ptr;
+
+	p = (void *)&pdu->adv_ext_ind;
+	h = (void *)p->ext_hdr_adi_adv_data;
+	ptr = (uint8_t *)h + sizeof(*h);
+
+	if (h->adv_addr) {
+		ptr += BDADDR_SIZE;
+	}
+
+	if (h->adi) {
+		ptr += sizeof(struct pdu_adv_adi);
+	}
+
+	if (h->aux_ptr) {
+		ptr += sizeof(struct pdu_adv_aux_ptr);
+	}
+
+	return (void *)ptr;
+}
+
+static inline void sync_info_offset_fill(struct pdu_adv_sync_info *si,
+					 uint32_t ticks_offset,
+					 uint32_t start_us)
+{
+	uint32_t offs;
+
+	offs = HAL_TICKER_TICKS_TO_US(ticks_offset) - start_us;
+	if (si->offs_units) {
+		si->offs = offs / SYNC_PKT_OFFS_UNIT_300_US;
+	} else {
+		si->offs = offs / SYNC_PKT_OFFS_UNIT_30_US;
+	}
 }
 
 static void ticker_cb(uint32_t ticks_at_expire, uint32_t remainder,
