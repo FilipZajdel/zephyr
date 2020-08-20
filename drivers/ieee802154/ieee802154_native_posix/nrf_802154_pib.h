@@ -169,21 +169,6 @@ const uint8_t * nrf_802154_pib_short_address_get(void);
  */
 void nrf_802154_pib_short_address_set(const uint8_t * p_short_address);
 
-/**
- * @brief Sets the radio CCA mode and threshold.
- *
- * @param[in] p_cca_cfg Pointer to the CCA configuration structure. Only fields relevant
- *                      to the selected mode are updated.
- */
-// void nrf_802154_pib_cca_cfg_set(const nrf_802154_cca_cfg_t * p_cca_cfg);
-
-/**
- * @brief Gets the current radio CCA configuration.
- *
- * @param[out] p_cca_cfg Pointer to the structure for the current CCA configuration.
- */
-// void nrf_802154_pib_cca_cfg_get(nrf_802154_cca_cfg_t * p_cca_cfg);
-
 #ifdef __cplusplus
 }
 #endif

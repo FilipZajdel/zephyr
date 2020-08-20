@@ -45,8 +45,6 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #define ACK_REQUEST_BYTE 1
 #define ACK_REQUEST_BIT (1 << 5)
-#define FRAME_PENDING_BYTE 1
-#define FRAME_PENDING_BIT (1 << 4)
 
 #define NATIVE_POSIX_802154_DATA(dev)                                          \
 	((struct native_posix_802154_data *const)(dev)->driver_data)
@@ -58,6 +56,8 @@ static int rx_frame_alloc(struct native_posix_802154_rx_frame *rx_frame,
 			  uint16_t psdu_len);
 static void rx_frame_free(struct native_posix_802154_rx_frame *rx_frame);
 static void send_ack(uint8_t *data);
+static void fcs_fill(uint8_t *psdu);
+static bool fcs_check(uint8_t *psdu);
 
 static void rx_thread(void *arg1, void *arg2, void *arg3)
 {
@@ -150,8 +150,6 @@ static void rx_thread(void *arg1, void *arg2, void *arg3)
 static enum ieee802154_hw_caps get_caps(struct device *dev)
 {
 	ARG_UNUSED(dev);
-	LOG_DBG("%s", __func__);
-
 	return IEEE802154_HW_FCS | IEEE802154_HW_FILTER | IEEE802154_HW_CSMA |
 	       IEEE802154_HW_2_4_GHZ | IEEE802154_HW_TX_RX_ACK |
 	       IEEE802154_HW_ENERGY_SCAN;
@@ -160,8 +158,6 @@ static enum ieee802154_hw_caps get_caps(struct device *dev)
 static int cca(struct device *dev)
 {
 	ARG_UNUSED(dev);
-	LOG_DBG("%s", __func__);
-
 	return bs_radio_cca();
 }
 
@@ -181,8 +177,6 @@ static int energy_scan_start(struct device *dev, uint16_t duration,
 {
 	ARG_UNUSED(dev);
 	ARG_UNUSED(done_cb);
-	LOG_DBG("%s", __func__);
-
 	return bs_radio_rssi(duration);
 }
 
@@ -192,7 +186,6 @@ static int filter(struct device *dev, bool set,
 {
 	int ret = 0;
 	uint8_t addr[2];
-	LOG_INF("Applying filter %u", type);
 
 	if (!set) {
 		return ret;
@@ -221,8 +214,6 @@ static int filter(struct device *dev, bool set,
 static int set_txpower(struct device *dev, int16_t dbm)
 {
 	ARG_UNUSED(dev);
-	LOG_DBG("__func__ %d dBm", dbm);
-
 	return bs_radio_tx_power_set(dbm);
 }
 
@@ -291,18 +282,12 @@ static int tx(struct device *dev, enum ieee802154_tx_mode mode,
 	int tx_result = -EIO;
 	bool ar_set;
 
-	native_posix_radio->tx_psdu[0] =
-		payload_len; // + NATIVE_POSIX_FCS_LENGTH;
+	native_posix_radio->tx_psdu[0] = payload_len + NATIVE_POSIX_FCS_LENGTH;
 	memcpy(native_posix_radio->tx_psdu + 1, payload, payload_len);
+	fcs_fill(native_posix_radio->tx_psdu);
+
 	ar_set = nrf_802154_frame_parser_ar_bit_is_set(
 		native_posix_radio->tx_psdu);
-
-	printf("Sending following data (%d):\n",
-	       native_posix_radio->tx_psdu[0]);
-	for (int i = 1; i < native_posix_radio->tx_psdu[0]; i++) {
-		printf("%x\t", native_posix_radio->tx_psdu[i]);
-	}
-	printf("\nThe end of sent packet\n");
 
 	/* Reset semaphore in case ACK was received after timeout */
 	k_sem_reset(&native_posix_radio->tx_wait);
@@ -339,11 +324,11 @@ static int tx(struct device *dev, enum ieee802154_tx_mode mode,
 
 	if (!ar_set) {
 		/* No ack requested */
-		LOG_INF("Frame has been sent");
+		LOG_DBG("Frame has been sent");
 		return 0;
 	} else {
 		/* Waiting for ack */
-		LOG_INF("Start waiting for ack!");
+		LOG_DBG("Start waiting for ack!");
 		tx_result = k_sem_take(
 			&native_posix_radio->tx_ack_wait,
 			K_USEC(NRF_802154_ACK_TIMEOUT_DEFAULT_TIMEOUT));
@@ -351,11 +336,11 @@ static int tx(struct device *dev, enum ieee802154_tx_mode mode,
 
 	if (tx_result) {
 		/* Ack was not received. */
-		LOG_INF("Ack not received!");
+		LOG_DBG("Ack not received!");
 		return -EFAULT;
 	}
 
-	LOG_INF("Ack has been received");
+	LOG_DBG("Ack has been received");
 	return 0;
 }
 
@@ -367,16 +352,6 @@ static int start(struct device *dev)
 
 	LOG_INF("Native Posix radio started (channel: %d)",
 		bs_radio_channel_get());
-
-	/** TODO: Remove that For debug only */
-	printf("Pan id: 0x%x\n"
-		   "Pan coordinator: %d\n"
-	       "Ext addr: 0x%llx\n"
-		   "Short addr: 0x%x\n",
-		   *(uint16_t*)nrf_802154_pib_pan_id_get(),
-		   nrf_802154_pib_pan_coord_get(),
-		   *(uint64_t*)nrf_802154_pib_extended_address_get(),
-		   *(uint16_t*)nrf_802154_pib_short_address_get());
 
 	return 0;
 }
@@ -450,8 +425,7 @@ static int configure(struct device *dev, enum ieee802154_config_type type,
 		if (config->auto_ack_fpb.enabled) {
 			switch (config->auto_ack_fpb.mode) {
 			case IEEE802154_FPB_ADDR_MATCH_THREAD:
-				posix_print_warning(
-					"Thread is not supported\n");
+				LOG_ERR("Thread is not supported\n");
 				return -ENOTSUP;
 
 			case IEEE802154_FPB_ADDR_MATCH_ZIGBEE:
@@ -532,15 +506,18 @@ void on_rx_done(uint8_t *psdu, int8_t power, uint8_t lqi, uint32_t time)
 
 	const uint8_t frame_type = nrf_802154_frame_parser_frame_type_get(psdu);
 	const uint8_t frame_len = psdu[0];
-	const uint8_t num_bytes = frame_len;;
+	const uint8_t num_bytes = frame_len; //- 2;
 	const uint8_t filter_error =
 		nrf_802154_filter_frame_part(psdu, &num_bytes);
 
+	/* Reject invalid frames */
 	if (filter_error && !nrf_802154_pib_promiscuous_get()) {
-		LOG_DBG("Rejecting frame - Error (len = %d): %u\n", num_bytes, filter_error);
+		LOG_DBG("Rejecting frame - Error (len = %d): %u\n", num_bytes,
+			filter_error);
 		return;
 	}
 
+	/* Handle received ack */
 	if (FRAME_TYPE_ACK == frame_type) {
 		if (0 != rx_frame_alloc(&radio_data.ack_frame, psdu[0] + 1)) {
 			posix_print_warning(
@@ -561,29 +538,22 @@ void on_rx_done(uint8_t *psdu, int8_t power, uint8_t lqi, uint32_t time)
 		return;
 	}
 
+	/* Generate ack if required */
 	if (nrf_802154_frame_parser_ar_bit_is_set(psdu) &&
-	    nrf_802154_pib_auto_ack_get() &&
-		!filter_error) {
+	    nrf_802154_pib_auto_ack_get() && !filter_error) {
 		uint8_t *ack_frame = nrf_802154_ack_generator_create(psdu);
-		/** TODO: Remove this log */
-		LOG_INF("ACK has len %d\n", ack_frame[0]);
 		send_ack(ack_frame);
 	}
 
+	/* Push received frame on the queue */
 	for (uint32_t i = 0; i < ARRAY_SIZE(radio_data.rx_frames); i++) {
 		if (radio_data.rx_frames[i].psdu != NULL) {
 			continue;
 		}
 
-		LOG_INF("on_rx_done -> len (%u)", psdu[0]);
-		for (int i = 1; i < psdu[0]; i++) {
-			printf("%x\t", psdu[i]);
-		}
-
 		if (0 !=
 		    rx_frame_alloc(&radio_data.rx_frames[i], psdu[0] + 1)) {
-			posix_print_warning(
-				"Not enough memory to allocate rx buffer");
+			LOG_ERR("Not enough memory to allocate rx buffer");
 			break;
 		}
 		memcpy(radio_data.rx_frames[i].psdu, psdu, psdu[0]);
@@ -591,7 +561,6 @@ void on_rx_done(uint8_t *psdu, int8_t power, uint8_t lqi, uint32_t time)
 		radio_data.rx_frames[i].rssi = power;
 		radio_data.rx_frames[i].lqi = lqi;
 
-		// WTF TODO: investigate how it works
 		if (psdu[ACK_REQUEST_BYTE] & ACK_REQUEST_BIT) {
 			radio_data.rx_frames[i].ack_fpb =
 				radio_data.last_frame_ack_fpb;
@@ -619,25 +588,11 @@ static void bs_radio_event_cb(struct bs_radio_event_data *event_data)
 	case BS_RADIO_EVENT_TX_FAILED:
 		LOG_DBG("BS_RADIO_EVENT_TX_FAILED");
 		k_sem_give(&radio_data.tx_wait);
-		/* TODO: Get power, lqi, timeout */
 		break;
-	case BS_RADIO_EVENT_RX_DONE: {
-		/** TODO: Remove these variables used only for logging */
-		uint8_t frame_type = nrf_802154_frame_parser_frame_type_get(
-			event_data->rx_done.psdu);
-		bool ar_set = nrf_802154_frame_parser_ar_bit_is_set(
-			event_data->rx_done.psdu);
-
-		LOG_DBG("BS_RADIO_EVENT_RX_DONE");
-		LOG_INF("Received frame of type: %d (%d) with rssi: %d"
-			" AR (%d)",
-			frame_type, event_data->rx_done.psdu[0],
-			event_data->rx_done.rssi, ar_set);
-
+	case BS_RADIO_EVENT_RX_DONE:
 		on_rx_done(event_data->rx_done.psdu, event_data->rx_done.rssi,
 			   0, 0);
 		break;
-	}
 	case BS_RADIO_EVENT_RX_FAILED:
 		LOG_DBG("BS_RADIO_RSSI_RX_FAILED");
 		break;
@@ -678,6 +633,17 @@ static void rx_frame_free(struct native_posix_802154_rx_frame *rx_frame)
 {
 	free(rx_frame->psdu);
 	rx_frame->psdu = NULL;
+}
+
+/**
+ * Calculate the fcs of a given mac frame
+ ** TODO: Calculate FCS
+ */
+static void fcs_fill(uint8_t *psdu)
+{
+	uint8_t frame_length = psdu[0];
+	psdu[frame_length] = 0;
+	psdu[frame_length - 1] = 0;
 }
 
 static struct ieee802154_radio_api native_posix_radio_api = {

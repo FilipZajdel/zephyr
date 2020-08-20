@@ -462,7 +462,6 @@ nrf_802154_rx_error_t nrf_802154_filter_frame_part(const uint8_t *p_data,
 
 	default:
 		result = dst_addr_check(p_data, frame_type);
-		printf("Dest addr check KURWAAAAAA!!!! %d\n", result);
 		break;
 	}
 
