@@ -582,6 +582,34 @@ The following peripherals are currently provided with this board:
   The flash content can be accessed from the host system, as explained in the
   `Host based flash access`_ section.
 
+**Radio**:
+  A simple radio emulation provides connectivity between devices with use
+  of `BabbleSim`_ - physical layer simulator. It is similar to 
+  :ref:`nrf52_bsim`, but more generic - it doesn't emulate any specific 
+  hardware.
+  
+  :option:`CONFIG_USE_BABBLESIM` setting is used to enable the radio 
+  peripheral. Moreover, BabbleSim is required. It can be built by following
+  steps described in `building manual`_. Radio can be used only with 32 bit 
+  version of native_posix, because some of BabbleSim libraries are built with
+  32-bit C library. 
+
+  To run the binary with with BabbleSim, provide following arguments::
+
+    $ ./zephyr.elf -bsim -d=<device-index> -s=<simulation-name> -p=<phy-name>
+  
+  The simulation of the physical layer (phy) can be run as described in 
+  BabbleSim's `example`_.
+
+.. _BabbleSim:
+  https://babblesim.github.io/
+
+.. _example:
+  https://babblesim.github.io/example_2g4.html
+
+.. _building manual:
+  https://babblesim.github.io/building.html
+
 UART
 ****
 
