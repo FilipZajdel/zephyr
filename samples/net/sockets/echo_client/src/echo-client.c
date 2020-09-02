@@ -81,7 +81,7 @@ struct configs conf = {
 	},
 };
 
-static struct pollfd fds[4];
+static struct zsock_pollfd fds[4];
 static int nfds;
 
 static bool connected;
@@ -93,25 +93,25 @@ static void prepare_fds(void)
 {
 	if (conf.ipv4.udp.sock >= 0) {
 		fds[nfds].fd = conf.ipv4.udp.sock;
-		fds[nfds].events = POLLIN;
+		fds[nfds].events = ZSOCK_POLLIN;
 		nfds++;
 	}
 
 	if (conf.ipv4.tcp.sock >= 0) {
 		fds[nfds].fd = conf.ipv4.tcp.sock;
-		fds[nfds].events = POLLIN;
+		fds[nfds].events = ZSOCK_POLLIN;
 		nfds++;
 	}
 
 	if (conf.ipv6.udp.sock >= 0) {
 		fds[nfds].fd = conf.ipv6.udp.sock;
-		fds[nfds].events = POLLIN;
+		fds[nfds].events = ZSOCK_POLLIN;
 		nfds++;
 	}
 
 	if (conf.ipv6.tcp.sock >= 0) {
 		fds[nfds].fd = conf.ipv6.tcp.sock;
-		fds[nfds].events = POLLIN;
+		fds[nfds].events = ZSOCK_POLLIN;
 		nfds++;
 	}
 }
@@ -133,6 +133,7 @@ static int start_udp_and_tcp(void)
 	LOG_INF("Starting...");
 
 	if (IS_ENABLED(CONFIG_NET_TCP)) {
+		printk("Tcp enabled\n");
 		ret = start_tcp();
 		if (ret < 0) {
 			return ret;
@@ -140,6 +141,7 @@ static int start_udp_and_tcp(void)
 	}
 
 	if (IS_ENABLED(CONFIG_NET_UDP)) {
+		printk("Udp enabled\n");
 		ret = start_udp();
 		if (ret < 0) {
 			return ret;
@@ -261,6 +263,8 @@ void main(void)
 {
 	int ret = 0, i = 0;
 	int iterations = CONFIG_NET_SAMPLE_SEND_ITERATIONS;
+	printk("ipsum len - %d\n", ipsum_len); 
+	srand(789999);
 
 	init_app();
 
@@ -277,6 +281,7 @@ void main(void)
 		k_sem_take(&run_app, K_FOREVER);
 
 		ret = start_udp_and_tcp();
+		printk("Udp started\n");
 
 		while (connected && (ret == 0)) {
 			ret = run_udp_and_tcp();

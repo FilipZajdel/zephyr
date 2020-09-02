@@ -218,6 +218,7 @@ SHELL_CMD_REGISTER(sample, &sample_commands,
 
 void main(void)
 {
+	srand(125000);
 	init_app();
 
 	if (!IS_ENABLED(CONFIG_NET_CONNECTION_MANAGER)) {

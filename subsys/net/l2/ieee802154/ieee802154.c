@@ -257,6 +257,7 @@ static int ieee802154_send(struct net_if *iface, struct net_pkt *pkt)
 	while (buf) {
 		int ret;
 
+		k_msleep(rand()%1580);
 		net_buf_add(&frame_buf, ll_hdr_size);
 
 		if (fragment) {

@@ -366,18 +366,18 @@ int bs_radio_tx(uint8_t *data, bool cca)
 
 	if (!radio_is_running) {
 		bs_trace_warning(0, "Radio was not started\n");
-		return -1;
+		return -EINVAL;
 	}
 
 	if ((data == NULL) || radio_state == RADIO_STATE_RX) {
 		bs_trace_warning(0, "Radio is now receiving\n");
-		return -1;
+		return -EBUSY;
 	}
 
 	if ((radio_state == RADIO_STATE_TX) ||
 	    (radio_state == RADIO_STATE_TX_PREPARE)) {
 		bs_trace_warning(0, "Radio is now transmitting\n");
-		return -1;
+		return -EBUSY;
 	}
 
 	radio_state = RADIO_STATE_TX_PREPARE;

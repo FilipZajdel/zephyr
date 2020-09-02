@@ -31,10 +31,13 @@ static int send_udp_data(struct data *data)
 {
 	int ret;
 
-	do {
+/*	do {
 		data->udp.expecting = sys_rand32_get() % ipsum_len;
 	} while (data->udp.expecting == 0U ||
-		 data->udp.expecting > data->udp.mtu);
+		 data->udp.expecting > data->udp.mtu); */
+	data->udp.expecting = ipsum_len;
+	printk("Sending in 5 seconds\n");
+	k_msleep(5000);
 
 	ret = send(data->udp.sock, lorem_ipsum, data->udp.expecting, 0);
 
@@ -96,7 +99,8 @@ static int start_udp_proto(struct data *data, struct sockaddr *addr,
 			errno);
 		return -errno;
 	}
-
+	
+	printk("UDP socket created\n");
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
 	sec_tag_t sec_tag_list[] = {
 		CA_CERTIFICATE_TAG,
@@ -138,7 +142,7 @@ static int process_udp_proto(struct data *data)
 	int ret, received;
 
 	received = recv(data->udp.sock, recv_buf, sizeof(recv_buf),
-			MSG_DONTWAIT);
+			K_NO_WAIT);
 
 	if (received == 0) {
 		return -EIO;
@@ -193,8 +197,10 @@ int start_udp(void)
 		inet_pton(AF_INET6, CONFIG_NET_CONFIG_PEER_IPV6_ADDR,
 			  &addr6.sin6_addr);
 
+		printk("Starting udp proto\n");
 		ret = start_udp_proto(&conf.ipv6, (struct sockaddr *)&addr6,
 				      sizeof(addr6));
+		printk("Started udp proto\n");
 		if (ret < 0) {
 			return ret;
 		}
@@ -214,7 +220,9 @@ int start_udp(void)
 	}
 
 	if (IS_ENABLED(CONFIG_NET_IPV6)) {
+		printk("Sending udp data\n");
 		ret = send_udp_data(&conf.ipv6);
+		printk("Udp data sent\n");
 		if (ret < 0) {
 			return ret;
 		}

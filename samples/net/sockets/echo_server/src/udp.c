@@ -16,6 +16,7 @@ LOG_MODULE_DECLARE(net_echo_server_sample, LOG_LEVEL_DBG);
 
 #include <net/socket.h>
 #include <net/tls_credentials.h>
+#include <sys/time.h>
 
 #include "common.h"
 #include "certificate.h"
@@ -23,15 +24,11 @@ LOG_MODULE_DECLARE(net_echo_server_sample, LOG_LEVEL_DBG);
 static void process_udp4(void);
 static void process_udp6(void);
 
-K_THREAD_DEFINE(udp4_thread_id, STACK_SIZE,
-		process_udp4, NULL, NULL, NULL,
-		THREAD_PRIORITY,
-		IS_ENABLED(CONFIG_USERSPACE) ? K_USER : 0, -1);
+K_THREAD_DEFINE(udp4_thread_id, STACK_SIZE, process_udp4, NULL, NULL, NULL,
+		THREAD_PRIORITY, IS_ENABLED(CONFIG_USERSPACE) ? K_USER : 0, -1);
 
-K_THREAD_DEFINE(udp6_thread_id, STACK_SIZE,
-		process_udp6, NULL, NULL, NULL,
-		THREAD_PRIORITY,
-		IS_ENABLED(CONFIG_USERSPACE) ? K_USER : 0, -1);
+K_THREAD_DEFINE(udp6_thread_id, STACK_SIZE, process_udp6, NULL, NULL, NULL,
+		THREAD_PRIORITY, IS_ENABLED(CONFIG_USERSPACE) ? K_USER : 0, -1);
 
 static int start_udp_proto(struct data *data, struct sockaddr *bind_addr,
 			   socklen_t bind_addrlen)
@@ -39,8 +36,8 @@ static int start_udp_proto(struct data *data, struct sockaddr *bind_addr,
 	int ret;
 
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
-	data->udp.sock = socket(bind_addr->sa_family, SOCK_DGRAM,
-				IPPROTO_DTLS_1_2);
+	data->udp.sock =
+		socket(bind_addr->sa_family, SOCK_DGRAM, IPPROTO_DTLS_1_2);
 #else
 	data->udp.sock = socket(bind_addr->sa_family, SOCK_DGRAM, IPPROTO_UDP);
 #endif
@@ -68,8 +65,8 @@ static int start_udp_proto(struct data *data, struct sockaddr *bind_addr,
 	}
 
 	/* Set role to DTLS server. */
-	ret = setsockopt(data->udp.sock, SOL_TLS, TLS_DTLS_ROLE,
-			 &role, sizeof(role));
+	ret = setsockopt(data->udp.sock, SOL_TLS, TLS_DTLS_ROLE, &role,
+			 sizeof(role));
 	if (ret < 0) {
 		NET_ERR("Failed to set DTLS role secure option (%s): %d",
 			data->proto, errno);
@@ -80,7 +77,8 @@ static int start_udp_proto(struct data *data, struct sockaddr *bind_addr,
 #if defined(CONFIG_NET_CONTEXT_TIMESTAMP)
 	bool val = 1;
 
-	setsockopt(data->udp.sock, SOL_SOCKET, SO_TIMESTAMPING, &val, sizeof(val));
+	setsockopt(data->udp.sock, SOL_SOCKET, SO_TIMESTAMPING, &val,
+		   sizeof(val));
 #endif
 
 	ret = bind(data->udp.sock, bind_addr, bind_addrlen);
@@ -100,8 +98,11 @@ static int process_udp(struct data *data)
 	struct sockaddr client_addr;
 	socklen_t client_addr_len;
 
-	NET_INFO("Waiting for UDP packets on port %d (%s)...",
-		 MY_PORT, data->proto);
+	NET_INFO("Waiting for UDP packets on port %d (%s)...", MY_PORT,
+		 data->proto);
+
+	int fl = fcntl(data->udp.sock, 3, 0);
+	fcntl(data->udp.sock, 4, fl | 04000);
 
 	do {
 		client_addr_len = sizeof(client_addr);
@@ -109,7 +110,7 @@ static int process_udp(struct data *data)
 				    sizeof(data->udp.recv_buffer), 0,
 				    &client_addr, &client_addr_len);
 
-		if (received < 0) {
+		if (received <= 0) {
 			/* Socket error */
 			NET_ERR("UDP (%s): Connection error %d", data->proto,
 				errno);
