@@ -415,8 +415,9 @@ static int configure(struct device *dev, enum ieee802154_config_type type,
 		if (config->auto_ack_fpb.enabled) {
 			switch (config->auto_ack_fpb.mode) {
 			case IEEE802154_FPB_ADDR_MATCH_THREAD:
-				LOG_ERR("Thread is not supported\n");
-				return -ENOTSUP;
+				nrf_802154_ack_data_src_addr_matching_method_set(
+					NRF_802154_SRC_ADDR_MATCH_THREAD);
+				break;
 
 			case IEEE802154_FPB_ADDR_MATCH_ZIGBEE:
 				nrf_802154_ack_data_src_addr_matching_method_set(
