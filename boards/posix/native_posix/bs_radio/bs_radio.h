@@ -73,7 +73,6 @@ void bs_radio_start(bs_radio_event_cb_t event_cb);
 void bs_radio_stop(void);
 
 int bs_radio_tx(uint8_t *data, bool cca);
-int bs_radio_tx_timeout(uint8_t *data, uint32_t timeout);
 int bs_radio_rssi(uint64_t duration_us);
 
 int bs_radio_cca(void);

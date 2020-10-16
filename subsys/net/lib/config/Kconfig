@@ -118,7 +118,7 @@ endif # NET_IPV4
 
 config NET_CONFIG_IEEE802154_DEV_NAME
 	string "IEEE 802.15.4 device name"
-	depends on NET_L2_IEEE802154 || IEEE802154_RAW_MODE || NET_L2_OPENTHREAD
+	depends on NET_L2_ZIGBEE || NET_L2_IEEE802154 || IEEE802154_RAW_MODE || NET_L2_OPENTHREAD
 	help
 	  The device name to get bindings from in the sample application.
 

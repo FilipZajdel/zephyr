@@ -143,7 +143,7 @@ config SRAM_BASE_ADDRESS
 	  /chosen/zephyr,sram in devicetree. The user should generally avoid
 	  changing it via menuconfig or in configuration files.
 
-if ARC || ARM || NIOS2 || X86
+if ARC || ARM || NIOS2 || X86 || SOC_POSIX
 
 # Workaround for not being able to have commas in macro arguments
 DT_CHOSEN_Z_FLASH := zephyr,flash
