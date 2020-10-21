@@ -56,7 +56,7 @@ struct native_posix_802154_data {
 	 * RX thread via rx_fifo object.
 	 */
 	struct native_posix_802154_rx_frame
-		rx_frames[NRF_802154_RX_BUFFERS];
+		rx_frames[NATIVE_POSIX_802154_RX_BUFFERS];
 
 	/* Frame pending bit value in ACK sent for the last received frame. */
 	bool last_frame_ack_fpb;

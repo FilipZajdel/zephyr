@@ -23,11 +23,11 @@
 /** Maximum number of Short Addresses of nodes for which there is ACK
  * data to set.
  */
-#define NUM_SHORT_ADDRESSES NRF_802154_PENDING_SHORT_ADDRESSES
+#define NUM_SHORT_ADDRESSES NATIVE_POSIX_802154_PENDING_SHORT_ADDRESSES
 /** Maximum number of Extended Addresses of nodes for which there is ACK
  * data to set.
  */
-#define NUM_EXTENDED_ADDRESSES NRF_802154_PENDING_EXTENDED_ADDRESSES
+#define NUM_EXTENDED_ADDRESSES NATIVE_POSIX_802154_PENDING_EXTENDED_ADDRESSES
 
 /* Structure representing pending bit setting variables. */
 typedef struct {
@@ -58,7 +58,7 @@ typedef struct {
 /* Structure representing a single IE record. */
 typedef struct {
 	/** Pointer to IE data buffer. */
-	uint8_t p_data[NRF_802154_MAX_ACK_IE_SIZE];
+	uint8_t p_data[NATIVE_POSIX_802154_MAX_ACK_IE_SIZE];
 
 	/** Length of the buffer. */
 	uint8_t len;
@@ -107,7 +107,7 @@ typedef struct {
  */
 static pending_bit_arrays_t m_pending_bit;
 static ie_arrays_t m_ie;
-static nrf_802154_src_addr_match_t m_src_matching_method;
+static native_posix_802154_src_addr_match_t m_src_matching_method;
 
 /******************************************************************************
  * @section Array handling helper functions
@@ -227,14 +227,14 @@ static bool addr_binary_search(const uint8_t *p_addr,
 	uint8_t entry_size = 0;
 
 	switch (data_type) {
-	case NRF_802154_ACK_DATA_PENDING_BIT:
+	case NATIVE_POSIX_802154_ACK_DATA_PENDING_BIT:
 		entry_size =
 			extended ? EXTENDED_ADDRESS_SIZE : SHORT_ADDRESS_SIZE;
 		addr_array_len = extended ? m_pending_bit.num_of_ext_addr :
 					    m_pending_bit.num_of_short_addr;
 		break;
 
-	case NRF_802154_ACK_DATA_IE:
+	case NATIVE_POSIX_802154_ACK_DATA_IE:
 		entry_size = extended ? sizeof(ack_ext_ie_data_t) :
 					sizeof(ack_short_ie_data_t);
 		addr_array_len = extended ? m_ie.num_of_ext_data :
@@ -321,13 +321,13 @@ static bool addr_index_find(const uint8_t *p_addr, uint32_t *p_location,
 	bool valid_data_type = true;
 
 	switch (data_type) {
-	case NRF_802154_ACK_DATA_PENDING_BIT:
+	case NATIVE_POSIX_802154_ACK_DATA_PENDING_BIT:
 		p_addr_array = extended ?
 				       (uint8_t *)m_pending_bit.extended_addr :
 				       (uint8_t *)m_pending_bit.short_addr;
 		break;
 
-	case NRF_802154_ACK_DATA_IE:
+	case NATIVE_POSIX_802154_ACK_DATA_IE:
 		p_addr_array = extended ? (uint8_t *)m_ie.ext_data :
 					  (uint8_t *)m_ie.short_data;
 		break;
@@ -360,7 +360,7 @@ static bool addr_match_thread(const uint8_t *p_frame)
 	bool extended;
 	uint32_t location;
 	const uint8_t *p_src_addr =
-		nrf_802154_frame_parser_src_addr_get(p_frame, &extended);
+		native_posix_802154_frame_parser_src_addr_get(p_frame, &extended);
 
 	/* The pending bit is set by default. */
 	if (!m_pending_bit.enabled || (NULL == p_src_addr)) {
@@ -368,7 +368,7 @@ static bool addr_match_thread(const uint8_t *p_frame)
 	}
 
 	return addr_index_find(p_src_addr, &location,
-			       NRF_802154_ACK_DATA_PENDING_BIT, extended);
+			       NATIVE_POSIX_802154_ACK_DATA_PENDING_BIT, extended);
 }
 
 /**
@@ -383,7 +383,7 @@ static bool addr_match_thread(const uint8_t *p_frame)
 static bool addr_match_zigbee(const uint8_t *p_frame)
 {
 	uint8_t frame_type;
-	nrf_802154_frame_parser_mhr_data_t mhr_fields;
+	native_posix_802154_frame_parser_mhr_data_t mhr_fields;
 	uint32_t location;
 	const uint8_t *p_cmd = p_frame;
 	bool ret = false;
@@ -400,10 +400,10 @@ static bool addr_match_zigbee(const uint8_t *p_frame)
 	frame_type = (p_frame[FRAME_TYPE_OFFSET] & FRAME_TYPE_MASK);
 
 	/* Parse the MAC header and retrieve the command type. */
-	if (nrf_802154_frame_parser_mhr_parse(p_frame, &mhr_fields)) {
+	if (native_posix_802154_frame_parser_mhr_parse(p_frame, &mhr_fields)) {
 		/** Note: Security header is not included in the offset.
 		 * If security is to be used at any point, additional
-		 * calculation in nrf_802154_frame_parser_mhr_parse needs
+		 * calculation in native_posix_802154_frame_parser_mhr_parse needs
 		 * to be implemented.
 		 */
 		p_cmd += mhr_fields.addressing_end_offset;
@@ -426,7 +426,7 @@ static bool addr_match_zigbee(const uint8_t *p_frame)
 			* m_pending_bits list.
 			*/
 			ret = !addr_index_find(mhr_fields.p_src_addr, &location,
-					       NRF_802154_ACK_DATA_PENDING_BIT,
+					       NATIVE_POSIX_802154_ACK_DATA_PENDING_BIT,
 					       false);
 		} else {
 			ret = true;
@@ -475,7 +475,7 @@ static bool addr_add(const uint8_t *p_addr, uint32_t location,
 	bool valid_data_type = true;
 
 	switch (data_type) {
-	case NRF_802154_ACK_DATA_PENDING_BIT:
+	case NATIVE_POSIX_802154_ACK_DATA_PENDING_BIT:
 		if (extended) {
 			p_addr_array = (uint8_t *)m_pending_bit.extended_addr;
 			max_addr_array_len = NUM_EXTENDED_ADDRESSES;
@@ -489,7 +489,7 @@ static bool addr_add(const uint8_t *p_addr, uint32_t location,
 		}
 		break;
 
-	case NRF_802154_ACK_DATA_IE:
+	case NATIVE_POSIX_802154_ACK_DATA_IE:
 		if (extended) {
 			p_addr_array = (uint8_t *)m_ie.ext_data;
 			max_addr_array_len = NUM_EXTENDED_ADDRESSES;
@@ -544,7 +544,7 @@ static bool addr_remove(uint32_t location, uint8_t data_type, bool extended)
 	bool valid_data_type = true;
 
 	switch (data_type) {
-	case NRF_802154_ACK_DATA_PENDING_BIT:
+	case NATIVE_POSIX_802154_ACK_DATA_PENDING_BIT:
 		if (extended) {
 			p_addr_array = (uint8_t *)m_pending_bit.extended_addr;
 			p_addr_array_len = &m_pending_bit.num_of_ext_addr;
@@ -556,7 +556,7 @@ static bool addr_remove(uint32_t location, uint8_t data_type, bool extended)
 		}
 		break;
 
-	case NRF_802154_ACK_DATA_IE:
+	case NATIVE_POSIX_802154_ACK_DATA_IE:
 		if (extended) {
 			p_addr_array = (uint8_t *)m_ie.ext_data;
 			p_addr_array_len = &m_ie.num_of_ext_data;
@@ -605,21 +605,21 @@ static void ie_data_add(uint32_t location, bool extended, const uint8_t *p_data,
  * @section Public API
  *****************************************************************************/
 
-void nrf_802154_ack_data_init(void)
+void native_posix_802154_ack_data_init(void)
 {
 	memset(&m_pending_bit, 0, sizeof(m_pending_bit));
 	memset(&m_ie, 0, sizeof(m_ie));
 
 	m_pending_bit.enabled = true;
-	m_src_matching_method = NRF_802154_SRC_ADDR_MATCH_THREAD;
+	m_src_matching_method = NATIVE_POSIX_802154_SRC_ADDR_MATCH_THREAD;
 }
 
-void nrf_802154_ack_data_enable(bool enabled)
+void native_posix_802154_ack_data_enable(bool enabled)
 {
 	m_pending_bit.enabled = enabled;
 }
 
-bool nrf_802154_ack_data_for_addr_set(const uint8_t *p_addr, bool extended,
+bool native_posix_802154_ack_data_for_addr_set(const uint8_t *p_addr, bool extended,
 				      uint8_t data_type, const void *p_data,
 				      uint8_t data_len)
 {
@@ -627,7 +627,7 @@ bool nrf_802154_ack_data_for_addr_set(const uint8_t *p_addr, bool extended,
 
 	if (addr_index_find(p_addr, &location, data_type, extended) ||
 	    addr_add(p_addr, location, data_type, extended)) {
-		if (data_type == NRF_802154_ACK_DATA_IE) {
+		if (data_type == NATIVE_POSIX_802154_ACK_DATA_IE) {
 			ie_data_add(location, extended, p_data, data_len);
 		}
 
@@ -637,7 +637,7 @@ bool nrf_802154_ack_data_for_addr_set(const uint8_t *p_addr, bool extended,
 	}
 }
 
-bool nrf_802154_ack_data_for_addr_clear(const uint8_t *p_addr, bool extended,
+bool native_posix_802154_ack_data_for_addr_clear(const uint8_t *p_addr, bool extended,
 					uint8_t data_type)
 {
 	uint32_t location = 0;
@@ -649,10 +649,10 @@ bool nrf_802154_ack_data_for_addr_clear(const uint8_t *p_addr, bool extended,
 	}
 }
 
-void nrf_802154_ack_data_reset(bool extended, uint8_t data_type)
+void native_posix_802154_ack_data_reset(bool extended, uint8_t data_type)
 {
 	switch (data_type) {
-	case NRF_802154_ACK_DATA_PENDING_BIT:
+	case NATIVE_POSIX_802154_ACK_DATA_PENDING_BIT:
 		if (extended) {
 			m_pending_bit.num_of_ext_addr = 0;
 		} else {
@@ -660,7 +660,7 @@ void nrf_802154_ack_data_reset(bool extended, uint8_t data_type)
 		}
 		break;
 
-	case NRF_802154_ACK_DATA_IE:
+	case NATIVE_POSIX_802154_ACK_DATA_IE:
 		if (extended) {
 			m_ie.num_of_ext_data = 0;
 		} else {
@@ -673,13 +673,13 @@ void nrf_802154_ack_data_reset(bool extended, uint8_t data_type)
 	}
 }
 
-void nrf_802154_ack_data_src_addr_matching_method_set(
-	nrf_802154_src_addr_match_t match_method)
+void native_posix_802154_ack_data_src_addr_matching_method_set(
+	native_posix_802154_src_addr_match_t match_method)
 {
 	switch (match_method) {
-	case NRF_802154_SRC_ADDR_MATCH_THREAD:
-	case NRF_802154_SRC_ADDR_MATCH_ZIGBEE:
-	case NRF_802154_SRC_ADDR_MATCH_ALWAYS_1:
+	case NATIVE_POSIX_802154_SRC_ADDR_MATCH_THREAD:
+	case NATIVE_POSIX_802154_SRC_ADDR_MATCH_ZIGBEE:
+	case NATIVE_POSIX_802154_SRC_ADDR_MATCH_ALWAYS_1:
 		m_src_matching_method = match_method;
 		break;
 
@@ -688,20 +688,20 @@ void nrf_802154_ack_data_src_addr_matching_method_set(
 	}
 }
 
-bool nrf_802154_ack_data_pending_bit_should_be_set(const uint8_t *p_frame)
+bool native_posix_802154_ack_data_pending_bit_should_be_set(const uint8_t *p_frame)
 {
 	bool ret;
 
 	switch (m_src_matching_method) {
-	case NRF_802154_SRC_ADDR_MATCH_THREAD:
+	case NATIVE_POSIX_802154_SRC_ADDR_MATCH_THREAD:
 		ret = addr_match_thread(p_frame);
 		break;
 
-	case NRF_802154_SRC_ADDR_MATCH_ZIGBEE:
+	case NATIVE_POSIX_802154_SRC_ADDR_MATCH_ZIGBEE:
 		ret = addr_match_zigbee(p_frame);
 		break;
 
-	case NRF_802154_SRC_ADDR_MATCH_ALWAYS_1:
+	case NATIVE_POSIX_802154_SRC_ADDR_MATCH_ALWAYS_1:
 		ret = addr_match_standard_compliant(p_frame);
 		break;
 
@@ -712,7 +712,7 @@ bool nrf_802154_ack_data_pending_bit_should_be_set(const uint8_t *p_frame)
 	return ret;
 }
 
-const uint8_t *nrf_802154_ack_data_ie_get(const uint8_t *p_src_addr,
+const uint8_t *native_posix_802154_ack_data_ie_get(const uint8_t *p_src_addr,
 					  bool src_addr_extended,
 					  uint8_t *p_ie_length)
 {
@@ -722,7 +722,7 @@ const uint8_t *nrf_802154_ack_data_ie_get(const uint8_t *p_src_addr,
 		return NULL;
 	}
 
-	if (addr_index_find(p_src_addr, &location, NRF_802154_ACK_DATA_IE,
+	if (addr_index_find(p_src_addr, &location, NATIVE_POSIX_802154_ACK_DATA_IE,
 			    src_addr_extended)) {
 		if (src_addr_extended) {
 			*p_ie_length = m_ie.ext_data[location].ie_data.len;

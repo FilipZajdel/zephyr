@@ -120,54 +120,54 @@ static bool dst_addressing_may_be_present(uint8_t frame_type)
  * @param[out] p_num_bytes  Offset of addressing fields end.
  * @param[in]  frame_type   Type of incoming frame.
  *
- * @retval NRF_802154_RX_ERROR_NONE               No errors in given frame were
+ * @retval NATIVE_POSIX_802154_RX_ERROR_NONE               No errors in given frame were
  * 												  detected - it may be
  *                                                further processed.
- * @retval NRF_802154_RX_ERROR_INVALID_DEST_ADDR  The frame is valid but
+ * @retval NATIVE_POSIX_802154_RX_ERROR_INVALID_DEST_ADDR  The frame is valid but
  * 												  addressed to another node.
- * @retval NRF_802154_RX_ERROR_INVALID_FRAME      Detected an error in given
+ * @retval NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME      Detected an error in given
  * 												  frame - it should be
  *                                                discarded.
  */
-static nrf_802154_rx_error_t
+static native_posix_802154_rx_error_t
 dst_addressing_end_offset_get_2006(const uint8_t *p_data, uint8_t *p_num_bytes,
 				   uint8_t frame_type)
 {
-	nrf_802154_rx_error_t result;
+	native_posix_802154_rx_error_t result;
 
 	switch (p_data[DEST_ADDR_TYPE_OFFSET] & DEST_ADDR_TYPE_MASK) {
 	case DEST_ADDR_TYPE_SHORT:
 		*p_num_bytes = SHORT_ADDR_CHECK_OFFSET;
-		result = NRF_802154_RX_ERROR_NONE;
+		result = NATIVE_POSIX_802154_RX_ERROR_NONE;
 		break;
 
 	case DEST_ADDR_TYPE_EXTENDED:
 		*p_num_bytes = EXTENDED_ADDR_CHECK_OFFSET;
-		result = NRF_802154_RX_ERROR_NONE;
+		result = NATIVE_POSIX_802154_RX_ERROR_NONE;
 		break;
 
 	case DEST_ADDR_TYPE_NONE:
-		if (nrf_802154_pib_pan_coord_get() ||
+		if (native_posix_802154_pib_pan_coord_get() ||
 		    (frame_type == FRAME_TYPE_BEACON)) {
 			switch (p_data[SRC_ADDR_TYPE_OFFSET] &
 				SRC_ADDR_TYPE_MASK) {
 			case SRC_ADDR_TYPE_SHORT:
 			case SRC_ADDR_TYPE_EXTENDED:
 				*p_num_bytes = PANID_CHECK_OFFSET;
-				result = NRF_802154_RX_ERROR_NONE;
+				result = NATIVE_POSIX_802154_RX_ERROR_NONE;
 				break;
 
 			default:
-				result = NRF_802154_RX_ERROR_INVALID_FRAME;
+				result = NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME;
 			}
 		} else {
-			result = NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
+			result = NATIVE_POSIX_802154_RX_ERROR_INVALID_DEST_ADDR;
 		}
 
 		break;
 
 	default:
-		result = NRF_802154_RX_ERROR_INVALID_FRAME;
+		result = NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME;
 	}
 
 	return result;
@@ -188,20 +188,20 @@ dst_addressing_end_offset_get_2006(const uint8_t *p_data, uint8_t *p_num_bytes,
  * @param[out] p_num_bytes  Offset of addressing fields end.
  * @param[in]  frame_type   Type of incoming frame.
  *
- * @retval NRF_802154_RX_ERROR_NONE               No errors in given frame were
+ * @retval NATIVE_POSIX_802154_RX_ERROR_NONE               No errors in given frame were
  * 												  detected - it may be
  *                                                further processed.
- * @retval NRF_802154_RX_ERROR_INVALID_DEST_ADDR  The frame is valid but
+ * @retval NATIVE_POSIX_802154_RX_ERROR_INVALID_DEST_ADDR  The frame is valid but
  * 												  addressed to another node.
- * @retval NRF_802154_RX_ERROR_INVALID_FRAME      Detected an error in given
+ * @retval NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME      Detected an error in given
  * 												  frame - it should be
  *                                                discarded.
  */
-static nrf_802154_rx_error_t
+static native_posix_802154_rx_error_t
 dst_addressing_end_offset_get_2015(const uint8_t *p_data, uint8_t *p_num_bytes,
 				   uint8_t frame_type)
 {
-	nrf_802154_rx_error_t result;
+	native_posix_802154_rx_error_t result;
 
 	switch (frame_type) {
 	case FRAME_TYPE_BEACON:
@@ -209,29 +209,29 @@ dst_addressing_end_offset_get_2015(const uint8_t *p_data, uint8_t *p_num_bytes,
 	case FRAME_TYPE_ACK:
 	case FRAME_TYPE_COMMAND: {
 		uint8_t end_offset =
-			nrf_802154_frame_parser_dst_addr_end_offset_get(p_data);
+			native_posix_802154_frame_parser_dst_addr_end_offset_get(p_data);
 
-		if (end_offset == NRF_802154_FRAME_PARSER_INVALID_OFFSET) {
-			result = NRF_802154_RX_ERROR_INVALID_FRAME;
+		if (end_offset == NATIVE_POSIX_802154_FRAME_PARSER_INVALID_OFFSET) {
+			result = NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME;
 		} else {
 			*p_num_bytes = end_offset;
-			result = NRF_802154_RX_ERROR_NONE;
+			result = NATIVE_POSIX_802154_RX_ERROR_NONE;
 		}
 	} break;
 
 	case FRAME_TYPE_MULTIPURPOSE:
 		/** TODO: Implement dst addressing filtering according to 2015 spec */
-		result = NRF_802154_RX_ERROR_INVALID_FRAME;
+		result = NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME;
 		break;
 
 	case FRAME_TYPE_FRAGMENT:
 	case FRAME_TYPE_EXTENDED:
 		/* No addressing data */
-		result = NRF_802154_RX_ERROR_NONE;
+		result = NATIVE_POSIX_802154_RX_ERROR_NONE;
 		break;
 
 	default:
-		result = NRF_802154_RX_ERROR_INVALID_FRAME;
+		result = NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME;
 	}
 
 	return result;
@@ -251,20 +251,20 @@ dst_addressing_end_offset_get_2015(const uint8_t *p_data, uint8_t *p_num_bytes,
  * @param[out] p_num_bytes  Offset of addressing fields end.
  * @param[in]  frame_type   Type of incoming frame.
  *
- * @retval NRF_802154_RX_ERROR_NONE               No errors in given frame were
+ * @retval NATIVE_POSIX_802154_RX_ERROR_NONE               No errors in given frame were
  * 												  detected - it may be
  *                                                further processed.
- * @retval NRF_802154_RX_ERROR_INVALID_DEST_ADDR  The frame is valid but
+ * @retval NATIVE_POSIX_802154_RX_ERROR_INVALID_DEST_ADDR  The frame is valid but
  * 												  addressed to another node.
- * @retval NRF_802154_RX_ERROR_INVALID_FRAME      Detected an error in given
+ * @retval NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME      Detected an error in given
  * 												  frame - it should be
  *                                                discarded.
  */
-static nrf_802154_rx_error_t
+static native_posix_802154_rx_error_t
 dst_addressing_end_offset_get(const uint8_t *p_data, uint8_t *p_num_bytes,
 			      uint8_t frame_type, uint8_t frame_version)
 {
-	nrf_802154_rx_error_t result;
+	native_posix_802154_rx_error_t result;
 
 	switch (frame_version) {
 	case FRAME_VERSION_0:
@@ -279,7 +279,7 @@ dst_addressing_end_offset_get(const uint8_t *p_data, uint8_t *p_num_bytes,
 		break;
 
 	default:
-		result = NRF_802154_RX_ERROR_INVALID_FRAME;
+		result = NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME;
 	}
 
 	return result;
@@ -300,11 +300,11 @@ static bool dst_pan_id_check(const uint8_t *p_panid, uint8_t frame_type)
 {
 	bool result;
 
-	if ((0 == memcmp(p_panid, nrf_802154_pib_pan_id_get(), PAN_ID_SIZE)) ||
+	if ((0 == memcmp(p_panid, native_posix_802154_pib_pan_id_get(), PAN_ID_SIZE)) ||
 	    (0 == memcmp(p_panid, BROADCAST_ADDRESS, PAN_ID_SIZE))) {
 		result = true;
 	} else if ((FRAME_TYPE_BEACON == frame_type) &&
-		   (0 == memcmp(nrf_802154_pib_pan_id_get(), BROADCAST_ADDRESS,
+		   (0 == memcmp(native_posix_802154_pib_pan_id_get(), BROADCAST_ADDRESS,
 				PAN_ID_SIZE))) {
 		result = true;
 	} else {
@@ -330,14 +330,14 @@ static bool dst_short_addr_check(const uint8_t *p_dst_addr, uint8_t frame_type)
 {
 	bool result;
 
-	if ((0 == memcmp(p_dst_addr, nrf_802154_pib_short_address_get(),
+	if ((0 == memcmp(p_dst_addr, native_posix_802154_pib_short_address_get(),
 			 SHORT_ADDRESS_SIZE)) ||
 	    (0 == memcmp(p_dst_addr, BROADCAST_ADDRESS, SHORT_ADDRESS_SIZE))) {
 		result = true;
 	} else {
 		printf("%s failed (dst)%x%x is not (my addr)%x%x\n", __func__, 
 				p_dst_addr[1], p_dst_addr[0], 
-				nrf_802154_pib_short_address_get()[1], nrf_802154_pib_short_address_get()[0]);
+				native_posix_802154_pib_short_address_get()[1], native_posix_802154_pib_short_address_get()[0]);
 		result = false;
 	}
 
@@ -361,7 +361,7 @@ static bool dst_extended_addr_check(const uint8_t *p_dst_addr,
 {
 	bool result;
 
-	if (0 == memcmp(p_dst_addr, nrf_802154_pib_extended_address_get(),
+	if (0 == memcmp(p_dst_addr, native_posix_802154_pib_extended_address_get(),
 			EXTENDED_ADDRESS_SIZE)) {
 		result = true;
 	} else {
@@ -378,30 +378,30 @@ static bool dst_extended_addr_check(const uint8_t *p_dst_addr,
  * @param[in] p_data  Pointer to a buffer containing PHR and PSDU of the
  * 					  incoming frame.
  *
- * @retval NRF_802154_RX_ERROR_NONE               Destination address of
+ * @retval NATIVE_POSIX_802154_RX_ERROR_NONE               Destination address of
  * 												  incoming frame allows further
  * 												  processing of the frame.
- * @retval NRF_802154_RX_ERROR_INVALID_FRAME      Received frame is invalid.
- * @retval NRF_802154_RX_ERROR_INVALID_DEST_ADDR  Destination address of
+ * @retval NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME      Received frame is invalid.
+ * @retval NATIVE_POSIX_802154_RX_ERROR_INVALID_DEST_ADDR  Destination address of
  * 												  incoming frame does not allow
  * 												  further processing.
  */
-static nrf_802154_rx_error_t dst_addr_check(const uint8_t *p_data,
+static native_posix_802154_rx_error_t dst_addr_check(const uint8_t *p_data,
 					    uint8_t frame_type)
 {
 	bool result;
-	nrf_802154_frame_parser_mhr_data_t mhr_data;
+	native_posix_802154_frame_parser_mhr_data_t mhr_data;
 
-	result = nrf_802154_frame_parser_mhr_parse(p_data, &mhr_data);
+	result = native_posix_802154_frame_parser_mhr_parse(p_data, &mhr_data);
 
 	if (!result) {
-		return NRF_802154_RX_ERROR_INVALID_FRAME;
+		return NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME;
 	}
 
 	if (mhr_data.p_dst_panid != NULL) {
 		if (!dst_pan_id_check(mhr_data.p_dst_panid, frame_type)) {
 			printf("dst_pan_id_check failed\n");
-			return NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
+			return NATIVE_POSIX_802154_RX_ERROR_INVALID_DEST_ADDR;
 		}
 	}
 
@@ -409,36 +409,36 @@ static nrf_802154_rx_error_t dst_addr_check(const uint8_t *p_data,
 	case SHORT_ADDRESS_SIZE:
 		printf("dst short addr check\n");
 		return dst_short_addr_check(mhr_data.p_dst_addr, frame_type) ?
-			       NRF_802154_RX_ERROR_NONE :
-			       NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
+			       NATIVE_POSIX_802154_RX_ERROR_NONE :
+			       NATIVE_POSIX_802154_RX_ERROR_INVALID_DEST_ADDR;
 
 	case EXTENDED_ADDRESS_SIZE:
 		printf("dst extended addr check\n");
 		return dst_extended_addr_check(mhr_data.p_dst_addr,
 					       frame_type) ?
-			       NRF_802154_RX_ERROR_NONE :
-			       NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
+			       NATIVE_POSIX_802154_RX_ERROR_NONE :
+			       NATIVE_POSIX_802154_RX_ERROR_INVALID_DEST_ADDR;
 
 	case 0:
 		/** Allow frames destined to the Pan Coordinator without destination
 		 * address or beacon frames without destination address
 		 */
-		return (nrf_802154_pib_pan_coord_get() ||
+		return (native_posix_802154_pib_pan_coord_get() ||
 			(frame_type == FRAME_TYPE_BEACON)) ?
-			       NRF_802154_RX_ERROR_NONE :
-			       NRF_802154_RX_ERROR_INVALID_DEST_ADDR;
+			       NATIVE_POSIX_802154_RX_ERROR_NONE :
+			       NATIVE_POSIX_802154_RX_ERROR_INVALID_DEST_ADDR;
 
 	default:
 		assert(false);
 	}
 
-	return NRF_802154_RX_ERROR_INVALID_FRAME;
+	return NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME;
 }
 
-nrf_802154_rx_error_t nrf_802154_filter_frame_part(const uint8_t *p_data,
+native_posix_802154_rx_error_t native_posix_802154_filter_frame_part(const uint8_t *p_data,
 						   uint8_t *p_num_bytes)
 {
-	nrf_802154_rx_error_t result = NRF_802154_RX_ERROR_INVALID_FRAME;
+	native_posix_802154_rx_error_t result = NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME;
 	uint8_t frame_type = p_data[FRAME_TYPE_OFFSET] & FRAME_TYPE_MASK;
 	uint8_t frame_version =
 		p_data[FRAME_VERSION_OFFSET] & FRAME_VERSION_MASK;
@@ -446,17 +446,17 @@ nrf_802154_rx_error_t nrf_802154_filter_frame_part(const uint8_t *p_data,
 	switch (*p_num_bytes) {
 	case FCF_CHECK_OFFSET:
 		if (p_data[0] < IMM_ACK_LENGTH || p_data[0] > MAX_PACKET_SIZE) {
-			result = NRF_802154_RX_ERROR_INVALID_LENGTH;
+			result = NATIVE_POSIX_802154_RX_ERROR_INVALID_LENGTH;
 			break;
 		}
 
 		if (!frame_type_and_version_filter(frame_type, frame_version)) {
-			result = NRF_802154_RX_ERROR_INVALID_FRAME;
+			result = NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME;
 			break;
 		}
 
 		if (!dst_addressing_may_be_present(frame_type)) {
-			result = NRF_802154_RX_ERROR_NONE;
+			result = NATIVE_POSIX_802154_RX_ERROR_NONE;
 			break;
 		}
 
@@ -469,27 +469,27 @@ nrf_802154_rx_error_t nrf_802154_filter_frame_part(const uint8_t *p_data,
 		break;
 	}
 switch(result) {
-case NRF_802154_RX_ERROR_NONE: printf("NRF_802154_RX_ERROR_NONE\n"); break;
+case NATIVE_POSIX_802154_RX_ERROR_NONE: printf("NATIVE_POSIX_802154_RX_ERROR_NONE\n"); break;
 /** Received a malformed frame. */
-case NRF_802154_RX_ERROR_INVALID_FRAME: printf("NRF_802154_RX_ERROR_INVALID_FRAME\n"); break;
+case NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME: printf("NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME\n"); break;
 /** Received a frame with an invalid checksum. */
-case NRF_802154_RX_ERROR_INVALID_FCS: printf("NRF_802154_RX_ERROR_INVALID_FCS\n"); break;
+case NATIVE_POSIX_802154_RX_ERROR_INVALID_FCS: printf("NATIVE_POSIX_802154_RX_ERROR_INVALID_FCS\n"); break;
 /** Received a frame with a mismatched destination address. */
-case NRF_802154_RX_ERROR_INVALID_DEST_ADDR: printf("NRF_802154_RX_ERROR_INVALID_DEST_ADDR\n"); break;
+case NATIVE_POSIX_802154_RX_ERROR_INVALID_DEST_ADDR: printf("NATIVE_POSIX_802154_RX_ERROR_INVALID_DEST_ADDR\n"); break;
 /** Runtime error occurred (for example, CPU was held for too long). */
-case NRF_802154_RX_ERROR_RUNTIME: printf("NRF_802154_RX_ERROR_RUNTIME\n"); break;
+case NATIVE_POSIX_802154_RX_ERROR_RUNTIME: printf("NATIVE_POSIX_802154_RX_ERROR_RUNTIME\n"); break;
 /** Radio timeslot ended during the frame reception. */
-case NRF_802154_RX_ERROR_TIMESLOT_ENDED: printf("NRF_802154_RX_ERROR_TIMESLOT_ENDED\n"); break;
+case NATIVE_POSIX_802154_RX_ERROR_TIMESLOT_ENDED: printf("NATIVE_POSIX_802154_RX_ERROR_TIMESLOT_ENDED\n"); break;
 /** Procedure was aborted by another operation. */
-case NRF_802154_RX_ERROR_ABORTED: printf("NRF_802154_RX_ERROR_ABORTED\n"); break;
+case NATIVE_POSIX_802154_RX_ERROR_ABORTED: printf("NATIVE_POSIX_802154_RX_ERROR_ABORTED\n"); break;
 /** Delayed reception request was rejected due to a denied timeslot request. */
-case NRF_802154_RX_ERROR_DELAYED_TIMESLOT_DENIED: printf("NRF_802154_RX_ERROR_DELAYED_TIMESLOT_DENIED\n"); break;
+case NATIVE_POSIX_802154_RX_ERROR_DELAYED_TIMESLOT_DENIED: printf("NATIVE_POSIX_802154_RX_ERROR_DELAYED_TIMESLOT_DENIED\n"); break;
 /** Delayed reception timeslot ended. */
-case NRF_802154_RX_ERROR_DELAYED_TIMEOUT: printf("NRF_802154_RX_ERROR_DELAYED_TIMEOUT\n"); break;
+case NATIVE_POSIX_802154_RX_ERROR_DELAYED_TIMEOUT: printf("NATIVE_POSIX_802154_RX_ERROR_DELAYED_TIMEOUT\n"); break;
 /** Received a frame with invalid length. */
-case NRF_802154_RX_ERROR_INVALID_LENGTH: printf("NRF_802154_RX_ERROR_INVALID_LENGTH\n"); break;
+case NATIVE_POSIX_802154_RX_ERROR_INVALID_LENGTH: printf("NATIVE_POSIX_802154_RX_ERROR_INVALID_LENGTH\n"); break;
 /** Delayed operation in the ongoing state was aborted by other request. */
-case NRF_802154_RX_ERROR_DELAYED_ABORTED: printf("NRF_802154_RX_ERROR_DELAYED_ABORTED\n"); break;
+case NATIVE_POSIX_802154_RX_ERROR_DELAYED_ABORTED: printf("NATIVE_POSIX_802154_RX_ERROR_DELAYED_ABORTED\n"); break;
 }
 	return result;
 }

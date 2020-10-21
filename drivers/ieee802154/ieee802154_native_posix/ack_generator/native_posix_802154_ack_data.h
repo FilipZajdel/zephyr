@@ -27,14 +27,14 @@ extern "C" {
 /**
  * @brief Initializes the ACK data generator module.
  */
-void nrf_802154_ack_data_init(void);
+void native_posix_802154_ack_data_init(void);
 
 /**
  * @brief Enables or disables the ACK data generator module.
  *
  * @param[in]  enabled  True if the module is to be enabled. False otherwise.
  */
-void nrf_802154_ack_data_enable(bool enabled);
+void native_posix_802154_ack_data_enable(bool enabled);
 
 /**
  * @brief Adds an address to the ACK data list.
@@ -49,14 +49,14 @@ void nrf_802154_ack_data_enable(bool enabled);
  * @param[in]  extended  Indication if @p p_addr is an extended address or a
  *                       short address.
  * @param[in]  data_type Type of data to be set. Refer to the
- *                       @ref nrf_802154_ack_data_t type.
+ *                       @ref native_posix_802154_ack_data_t type.
  * @param[in]  p_data    Pointer to the data to be set.
  * @param[in]  data_len  Length of the @p p_data buffer.
  *
  * @retval true   Address successfully added to the list.
  * @retval false  Address not added to the list (list is full).
  */
-bool nrf_802154_ack_data_for_addr_set(const uint8_t *p_addr, bool extended,
+bool native_posix_802154_ack_data_for_addr_set(const uint8_t *p_addr, bool extended,
 				      uint8_t data_type, const void *p_data,
 				      uint8_t data_len);
 
@@ -78,7 +78,7 @@ bool nrf_802154_ack_data_for_addr_set(const uint8_t *p_addr, bool extended,
  * @retval false  Address not removed from the list (address is missing from
  *                the list).
  */
-bool nrf_802154_ack_data_for_addr_clear(const uint8_t *p_addr, bool extended,
+bool native_posix_802154_ack_data_for_addr_clear(const uint8_t *p_addr, bool extended,
 					uint8_t data_type);
 
 /**
@@ -89,7 +89,7 @@ bool nrf_802154_ack_data_for_addr_clear(const uint8_t *p_addr, bool extended,
  * @param[in]  data_type Type of data that is to be cleared for all addresses
  *                       of a given length.
  */
-void nrf_802154_ack_data_reset(bool extended, uint8_t data_type);
+void native_posix_802154_ack_data_reset(bool extended, uint8_t data_type);
 
 /**
  * @brief Select the source matching algorithm.
@@ -97,15 +97,15 @@ void nrf_802154_ack_data_reset(bool extended, uint8_t data_type);
  * @note This function is to be called after the driver initialization,
  *       but before the transceiver is enabled.
  *
- * When calling @ref nrf_802154_ack_data_pending_bit_should_be_set, one of
+ * When calling @ref native_posix_802154_ack_data_pending_bit_should_be_set, one of
  * several algorithms for source address matching will be chosen. To ensure
  * a specific algorithm is selected, call this function before
  * @ref rf_802154_ack_data_pending_bit_should_be_set.
  *
  * @param[in]  match_method Source matching method to be used.
  */
-void nrf_802154_ack_data_src_addr_matching_method_set(
-	nrf_802154_src_addr_match_t match_method);
+void native_posix_802154_ack_data_src_addr_matching_method_set(
+	native_posix_802154_src_addr_match_t match_method);
 
 /**
  * @brief Checks if a pending bit is to be set in the ACK frame sent in
@@ -117,7 +117,7 @@ void nrf_802154_ack_data_src_addr_matching_method_set(
  * @retval true   Pending bit is to be set.
  * @retval false  Pending bit is to be cleared.
  */
-bool nrf_802154_ack_data_pending_bit_should_be_set(const uint8_t *p_frame);
+bool native_posix_802154_ack_data_pending_bit_should_be_set(const uint8_t *p_frame);
 
 /**
  * @brief Gets the IE data stored in the list for the source address of the
@@ -131,7 +131,7 @@ bool nrf_802154_ack_data_pending_bit_should_be_set(const uint8_t *p_frame);
  * @returns  Either pointer to the stored IE data or NULL if the IE data is not
  *           to be set.
  */
-const uint8_t *nrf_802154_ack_data_ie_get(const uint8_t *p_src_addr,
+const uint8_t *native_posix_802154_ack_data_ie_get(const uint8_t *p_src_addr,
 					  bool src_addr_ext,
 					  uint8_t *p_ie_length);
 
@@ -139,4 +139,4 @@ const uint8_t *nrf_802154_ack_data_ie_get(const uint8_t *p_src_addr,
 }
 #endif
 
-#endif /* NRF_802154_ACK_DATA_H */
+#endif /* NATIVE_POSIX_802154_ACK_DATA_H */

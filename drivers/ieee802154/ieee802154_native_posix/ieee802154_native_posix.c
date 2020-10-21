@@ -62,7 +62,10 @@ static int rx_frame_alloc(struct native_posix_802154_rx_frame *rx_frame,
 			  uint16_t psdu_len);
 static void rx_frame_free(struct native_posix_802154_rx_frame *rx_frame);
 static void send_ack(const uint8_t *data);
-static void fcs_fill(uint8_t *psdu);
+
+/** TODO: move to another file */
+static void fill_fcs(uint8_t *psdu);
+static uint16_t calc_fcs(uint8_t *psdu);
 static bool fcs_check(const uint8_t *psdu);
 
 static void rx_thread(void *arg1, void *arg2, void *arg3)
@@ -207,19 +210,19 @@ static int filter(struct device *dev, bool set,
 
 	switch (type) {
 	case IEEE802154_FILTER_TYPE_IEEE_ADDR: {
-		nrf_802154_pib_extended_address_set(filter->ieee_addr);
+		native_posix_802154_pib_extended_address_set(filter->ieee_addr);
 		LOG_INF("pib extended addr set 0x%llx",
 			*(uint64_t *)filter->ieee_addr);
 		break;
 	}
 	case IEEE802154_FILTER_TYPE_SHORT_ADDR:
 		sys_put_le16(filter->short_addr, addr);
-		nrf_802154_pib_short_address_set(addr);
+		native_posix_802154_pib_short_address_set(addr);
 		LOG_INF("pib short addr set %x", filter->short_addr);
 		break;
 	case IEEE802154_FILTER_TYPE_PAN_ID:
 		sys_put_le16(filter->pan_id, addr);
-		nrf_802154_pib_pan_id_set(addr);
+		native_posix_802154_pib_pan_id_set(addr);
 		LOG_INF("pib pan id set %x", filter->pan_id);
 		break;
 	default:
@@ -312,9 +315,10 @@ static int tx(struct device *dev, enum ieee802154_tx_mode mode,
 	native_posix_radio->tx_psdu[0] =
 		payload_len + NATIVE_POSIX_802154_FCS_LENGTH;
 	memcpy(native_posix_radio->tx_psdu + 1, payload, payload_len);
-	fcs_fill(native_posix_radio->tx_psdu);
 
-	ar_set = nrf_802154_frame_parser_ar_bit_is_set(
+	fill_fcs(native_posix_radio->tx_psdu);
+
+	ar_set = native_posix_802154_frame_parser_ar_bit_is_set(
 		native_posix_radio->tx_psdu);
 
 	/* Reset semaphore in case ACK was received after timeout */
@@ -344,8 +348,8 @@ static int tx(struct device *dev, enum ieee802154_tx_mode mode,
 	}
 
 	radio_data.ack_required = ar_set;
-	radio_data.ack_seq_number =
-		nrf_802154_frame_parser_dsn_get(native_posix_radio->tx_psdu);
+	radio_data.ack_seq_number = native_posix_802154_frame_parser_dsn_get(
+		native_posix_radio->tx_psdu);
 	tx_started(dev, pkt, frag);
 
 	LOG_INF("Sending frame (chan:%d, txpower:%d, frame_len:%d)",
@@ -363,7 +367,7 @@ static int tx(struct device *dev, enum ieee802154_tx_mode mode,
 		LOG_INF("Start waiting for ack!");
 		tx_result = k_sem_take(
 			&native_posix_radio->tx_ack_wait,
-			K_USEC(NRF_802154_ACK_TIMEOUT_DEFAULT_TIMEOUT));
+			K_USEC(NATIVE_POSIX_802154_ACK_TIMEOUT_DEFAULT_TIMEOUT));
 		radio_data.ack_required = false;
 		radio_data.ack_seq_number = 0;
 	}
@@ -409,9 +413,9 @@ static int driver802154_init(struct device *dev)
 	k_sem_init(&native_posix_radio->tx_wait, 0, 1);
 	k_sem_init(&native_posix_radio->tx_ack_wait, 0, 1);
 
-	nrf_802154_ack_data_init();
-	nrf_802154_ack_generator_init();
-	nrf_802154_pib_init();
+	native_posix_802154_ack_data_init();
+	native_posix_802154_ack_generator_init();
+	native_posix_802154_pib_init();
 
 	k_thread_create(&native_posix_radio->rx_thread,
 			native_posix_radio->rx_stack,
@@ -455,13 +459,13 @@ static int configure(struct device *dev, enum ieee802154_config_type type,
 		if (config->auto_ack_fpb.enabled) {
 			switch (config->auto_ack_fpb.mode) {
 			case IEEE802154_FPB_ADDR_MATCH_THREAD:
-				nrf_802154_ack_data_src_addr_matching_method_set(
-					NRF_802154_SRC_ADDR_MATCH_THREAD);
+				native_posix_802154_ack_data_src_addr_matching_method_set(
+					NATIVE_POSIX_802154_SRC_ADDR_MATCH_THREAD);
 				break;
 
 			case IEEE802154_FPB_ADDR_MATCH_ZIGBEE:
-				nrf_802154_ack_data_src_addr_matching_method_set(
-					NRF_802154_SRC_ADDR_MATCH_ZIGBEE);
+				native_posix_802154_ack_data_src_addr_matching_method_set(
+					NATIVE_POSIX_802154_SRC_ADDR_MATCH_ZIGBEE);
 				break;
 
 			default:
@@ -469,15 +473,17 @@ static int configure(struct device *dev, enum ieee802154_config_type type,
 			}
 		}
 
-		nrf_802154_ack_data_enable(config->auto_ack_fpb.enabled);
+		native_posix_802154_ack_data_enable(
+			config->auto_ack_fpb.enabled);
 		break;
 
 	case IEEE802154_CONFIG_ACK_FPB:
 		if (config->ack_fpb.enabled) {
-			if (!nrf_802154_ack_data_for_addr_set(
+			if (!native_posix_802154_ack_data_for_addr_set(
 				    config->ack_fpb.addr,
 				    config->ack_fpb.extended,
-				    NRF_802154_ACK_DATA_PENDING_BIT, NULL, 0)) {
+				    NATIVE_POSIX_802154_ACK_DATA_PENDING_BIT,
+				    NULL, 0)) {
 				return -ENOMEM;
 			}
 
@@ -485,26 +491,26 @@ static int configure(struct device *dev, enum ieee802154_config_type type,
 		}
 
 		if (config->ack_fpb.addr != NULL) {
-			if (!nrf_802154_ack_data_for_addr_clear(
+			if (!native_posix_802154_ack_data_for_addr_clear(
 				    config->ack_fpb.addr,
 				    config->ack_fpb.extended,
-				    NRF_802154_ACK_DATA_PENDING_BIT)) {
+				    NATIVE_POSIX_802154_ACK_DATA_PENDING_BIT)) {
 				return -ENOENT;
 			}
 		} else {
-			nrf_802154_ack_data_reset(
+			native_posix_802154_ack_data_reset(
 				config->ack_fpb.extended,
-				NRF_802154_ACK_DATA_PENDING_BIT);
+				NATIVE_POSIX_802154_ACK_DATA_PENDING_BIT);
 		}
 
 		break;
 
 	case IEEE802154_CONFIG_PAN_COORDINATOR:
-		nrf_802154_pib_pan_coord_set(config->pan_coordinator);
+		native_posix_802154_pib_pan_coord_set(config->pan_coordinator);
 		break;
 
 	case IEEE802154_CONFIG_PROMISCUOUS:
-		nrf_802154_pib_promiscuous_set(config->promiscuous);
+		native_posix_802154_pib_promiscuous_set(config->promiscuous);
 		break;
 
 	case IEEE802154_CONFIG_EVENT_HANDLER:
@@ -532,12 +538,13 @@ static int configure(struct device *dev, enum ieee802154_config_type type,
 static void on_rx_done(const uint8_t *psdu, int8_t power, uint8_t lqi,
 		       uint32_t time)
 {
-	const uint8_t frame_type = nrf_802154_frame_parser_frame_type_get(psdu);
+	const uint8_t frame_type =
+		native_posix_802154_frame_parser_frame_type_get(psdu);
 	const uint8_t frame_len = psdu[0] - 2;
 	uint8_t num_bytes = frame_len;
-	const uint8_t filter_error = /*0;*/
-		nrf_802154_filter_frame_part(psdu, &num_bytes);
-	uint64_t seq_number = nrf_802154_frame_parser_dsn_get(psdu);
+	const uint8_t filter_error =
+		native_posix_802154_filter_frame_part(psdu, &num_bytes);
+	uint64_t seq_number = native_posix_802154_frame_parser_dsn_get(psdu);
 
 	/* First level filtering */
 	if (!fcs_check(psdu)) {
@@ -546,8 +553,8 @@ static void on_rx_done(const uint8_t *psdu, int8_t power, uint8_t lqi,
 	}
 
 	/* Reject invalid frames */
-	if (filter_error && !nrf_802154_pib_promiscuous_get()
-		&& (frame_type != FRAME_TYPE_ACK)) {
+	if (filter_error && !native_posix_802154_pib_promiscuous_get() &&
+	    (frame_type != FRAME_TYPE_ACK)) {
 		LOG_ERR("Rejecting frame - Error (len = %d): %u\n", num_bytes,
 			filter_error);
 		return;
@@ -564,7 +571,8 @@ static void on_rx_done(const uint8_t *psdu, int8_t power, uint8_t lqi,
 		}
 
 		memcpy(radio_data.ack_frame.psdu, psdu, psdu[0] + 1);
-		radio_data.ack_frame.rssi = /*power*/ -18;;
+		radio_data.ack_frame.rssi = /*power*/ -18;
+		;
 		radio_data.ack_frame.lqi = 85;
 		radio_data.ack_frame.time = time;
 
@@ -577,10 +585,10 @@ static void on_rx_done(const uint8_t *psdu, int8_t power, uint8_t lqi,
 	}
 
 	/* Generate ack if required */
-	if (nrf_802154_frame_parser_ar_bit_is_set(psdu) &&
-	    nrf_802154_pib_auto_ack_get() && !filter_error) {
+	if (native_posix_802154_frame_parser_ar_bit_is_set(psdu) &&
+	    native_posix_802154_pib_auto_ack_get() && !filter_error) {
 		const uint8_t *ack_frame =
-			nrf_802154_ack_generator_create(psdu);
+			native_posix_802154_ack_generator_create(psdu);
 		send_ack(ack_frame);
 		/* Let know upper layers if fpb in ack was set */
 		radio_data.last_frame_ack_fpb =
@@ -605,7 +613,7 @@ static void on_rx_done(const uint8_t *psdu, int8_t power, uint8_t lqi,
 		radio_data.rx_frames[i].rssi = power;
 		radio_data.rx_frames[i].lqi = lqi;
 
-		if (nrf_802154_frame_parser_ar_bit_is_set(psdu)) {
+		if (native_posix_802154_frame_parser_ar_bit_is_set(psdu)) {
 			radio_data.rx_frames[i].ack_fpb =
 				radio_data.last_frame_ack_fpb;
 		} else {
@@ -657,9 +665,8 @@ static void bs_radio_event_cb(struct bs_radio_event_data *event_data)
 
 static void send_ack(const uint8_t *psdu)
 {
-	fcs_fill(psdu);
+	fill_fcs(psdu);
 	int result = bs_radio_tx((char *)psdu, true);
-	// LOG_INF("Sending ACK result %d", result);
 }
 
 static int rx_frame_alloc(struct native_posix_802154_rx_frame *rx_frame,
@@ -681,14 +688,11 @@ static void rx_frame_free(struct native_posix_802154_rx_frame *rx_frame)
 	rx_frame->psdu = NULL;
 }
 
-/** TODO: Clean up these functions */
-typedef uint16_t (*bit_order_16)(uint16_t);
-typedef uint8_t (*bit_order_8)(uint8_t);
-
-uint16_t reverse_16(uint16_t value)
+static uint16_t reverse_bits_16(uint16_t value)
 {
 	uint16_t reversed = 0;
-	for (int i = 0; i < 16; ++i) {
+
+	for (int i = 0; i < 16; i++) {
 		reversed <<= 1;
 		reversed |= value & 0x1;
 		value >>= 1;
@@ -696,10 +700,11 @@ uint16_t reverse_16(uint16_t value)
 	return reversed;
 }
 
-uint8_t reverse_8(uint8_t value)
+static uint8_t reverse_bits_8(uint8_t value)
 {
 	uint8_t reversed = 0;
-	for (int i = 0; i < 8; ++i) {
+
+	for (int i = 0; i < 8; i++) {
 		reversed <<= 1;
 		reversed |= value & 0x1;
 		value >>= 1;
@@ -707,13 +712,18 @@ uint8_t reverse_8(uint8_t value)
 	return reversed;
 }
 
-uint16_t calc_crc16(uint8_t const *message, int nBytes, bit_order_8 data_order,
-		    bit_order_16 remainder_order, uint16_t remainder,
-		    uint16_t polynomial)
+uint16_t calc_fcs(uint8_t *psdu)
 {
-	for (int byte = 0; byte < nBytes; ++byte) {
-		remainder ^= (data_order(message[byte]) << 8);
-		for (uint8_t bit = 8; bit > 0; --bit) {
+	const uint8_t *msg = psdu + 1;
+	const int msg_len = psdu[0] - FCS_SIZE;
+
+	uint16_t remainder = 0;
+	uint16_t polynomial = 0x1021;
+
+	for (int nbyte = 0; nbyte < msg_len; nbyte++) {
+		remainder ^= (reverse_bits_8(msg[nbyte]) << 8);
+
+		for (uint8_t nbit = 0; nbit < 8; nbit++) {
 			if (remainder & 0x8000) {
 				remainder = (remainder << 1) ^ polynomial;
 			} else {
@@ -721,33 +731,19 @@ uint16_t calc_crc16(uint8_t const *message, int nBytes, bit_order_8 data_order,
 			}
 		}
 	}
-	return remainder_order(remainder);
+
+	return reverse_bits_16(remainder);
 }
 
-uint16_t crc16ccitt_kermit(uint8_t const *message, int nBytes)
+void fill_fcs(uint8_t *psdu)
 {
-	uint16_t swap = calc_crc16(message, nBytes, reverse_8, reverse_16,
-				   0x0000, 0x1021);
-	return swap << 8 | swap >> 8;
-}
-
-/** TODO: Calculate FCS
- * Calculate the fcs of a given frame
- *
- */
-static void fcs_fill(uint8_t *psdu)
-{
-	uint8_t frame_length = psdu[0];
-
-	uint16_t fcs = crc16ccitt_kermit(psdu + 1, frame_length - 2);
-	// printf("Frame length %d\n")
-
-	psdu[frame_length] = fcs & 0xFF;
-	psdu[frame_length - 1] = (fcs >> 8) & 0xFF;
+	uint16_t fcs = calc_fcs(psdu);
+	psdu[psdu[0] - 1] = fcs & 0xFF;
+	psdu[psdu[0]] = (fcs >> 8) & 0xFF;
 }
 
 /**
- * Checks fcs of a frame
+ * Checks fcs correctness of a frame
  *
  * Arguments:
  * psdu         -       Points to frame, where psdu[0] is length of a frame
@@ -758,17 +754,11 @@ static void fcs_fill(uint8_t *psdu)
  */
 static bool fcs_check(const uint8_t *psdu)
 {
-	uint8_t buf[128];
-	uint8_t psdu_len = psdu[0];
+	uint16_t required_fcs = calc_fcs(psdu);
+	uint16_t received_fcs =
+		psdu[psdu[0] - 1] | ((psdu[psdu[0]] << 8) & 0xFF00);
 
-	memcpy(buf, psdu, psdu[0] + 1);
-	fcs_fill(buf);
-
-	if (psdu[psdu_len] == buf[psdu_len] &&
-	    psdu[psdu_len - 1] == buf[psdu_len - 1]) {
-		return true;
-	}
-	return false;
+	return received_fcs == required_fcs;
 }
 
 static struct ieee802154_radio_api native_posix_radio_api = {

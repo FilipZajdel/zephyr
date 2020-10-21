@@ -22,7 +22,7 @@ extern "C" {
 #endif
 
 /**
- * @defgroup nrf_802154_filter Incoming frame filter API
+ * @defgroup native_posix_802154_filter Incoming frame filter API
  * @{
  * @ingroup nrf_802154
  * @brief Procedures used to discard the incoming frames that contain
@@ -53,20 +53,20 @@ extern "C" {
  *                            performed during the filtering of the given
  *                            frame.
  *
- * @retval NRF_802154_RX_ERROR_NONE               Verified part of the incoming
+ * @retval NATIVE_POSIX_802154_RX_ERROR_NONE               Verified part of the incoming
  *                                                frame is valid.
- * @retval NRF_802154_RX_ERROR_INVALID_FRAME      Verified part of the incoming
+ * @retval NATIVE_POSIX_802154_RX_ERROR_INVALID_FRAME      Verified part of the incoming
  *                                                frame is invalid.
- * @retval NRF_802154_RX_ERROR_INVALID_DEST_ADDR  Incoming frame has
+ * @retval NATIVE_POSIX_802154_RX_ERROR_INVALID_DEST_ADDR  Incoming frame has
  *                                                destination address that
  *                                                mismatches the address of
  *                                                this node.
  */
-nrf_802154_rx_error_t nrf_802154_filter_frame_part(const uint8_t *p_data,
+native_posix_802154_rx_error_t native_posix_802154_filter_frame_part(const uint8_t *p_data,
 						   uint8_t *p_num_bytes);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* NRF_802154_FILTER_H_ */
+#endif /* NATIVE_POSIX_802154_FILTER_H_ */

@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 /** Initializes the Immediate ACK generator module. */
-void nrf_802154_imm_ack_generator_init(void);
+void native_posix_802154_imm_ack_generator_init(void);
 
 /** Creates an Immediate ACK in response to the provided frame.
  *
@@ -34,10 +34,10 @@ void nrf_802154_imm_ack_generator_init(void);
  * @returns  Pointer to a constant buffer that contains PHR and PSDU of the
  *           created Immediate ACK frame.
  */
-const uint8_t *nrf_802154_imm_ack_generator_create(const uint8_t *p_frame);
+const uint8_t *native_posix_802154_imm_ack_generator_create(const uint8_t *p_frame);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* NRF_802154_IMM_ACK_GENERATOR_H */
+#endif /* NATIVE_POSIX_802154_IMM_ACK_GENERATOR_H */

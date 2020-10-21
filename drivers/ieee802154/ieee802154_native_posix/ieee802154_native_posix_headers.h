@@ -10,7 +10,6 @@
 #include "native_posix_802154_config.h"
 #include "native_posix_802154_const.h"
 #include "native_posix_802154_frame_parser.h"
-#include "native_posix_802154_utils.h"
 #include "native_posix_802154_types.h"
 #include "native_posix_802154_pib.h"
 #include "native_posix_802154_filter.h"

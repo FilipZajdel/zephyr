@@ -32,7 +32,7 @@ static void ack_buffer_clear(void)
 
 static void sequence_number_set(const uint8_t *p_frame)
 {
-	if (!nrf_802154_frame_parser_dsn_suppress_bit_is_set(p_frame)) {
+	if (!native_posix_802154_frame_parser_dsn_suppress_bit_is_set(p_frame)) {
 		m_ack_data[DSN_OFFSET] = p_frame[DSN_OFFSET];
 	}
 }
@@ -54,7 +54,7 @@ static void fcf_security_enabled_set(const uint8_t *p_frame)
 
 static void fcf_frame_pending_set(const uint8_t *p_frame)
 {
-	if (nrf_802154_ack_data_pending_bit_should_be_set(p_frame)) {
+	if (native_posix_802154_ack_data_pending_bit_should_be_set(p_frame)) {
 		m_ack_data[FRAME_PENDING_OFFSET] |= FRAME_PENDING_BIT;
 	}
 }
@@ -68,7 +68,7 @@ static void fcf_panid_compression_set(const uint8_t *p_frame)
 
 static void fcf_sequence_number_suppression_set(const uint8_t *p_frame)
 {
-	if (nrf_802154_frame_parser_dsn_suppress_bit_is_set(p_frame)) {
+	if (native_posix_802154_frame_parser_dsn_suppress_bit_is_set(p_frame)) {
 		m_ack_data[DSN_SUPPRESS_OFFSET] |= DSN_SUPPRESS_BIT;
 	}
 }
@@ -83,9 +83,9 @@ static void fcf_ie_present_set(const uint8_t *p_frame,
 
 static void fcf_dst_addressing_mode_set(const uint8_t *p_frame)
 {
-	if (nrf_802154_frame_parser_src_addr_is_extended(p_frame)) {
+	if (native_posix_802154_frame_parser_src_addr_is_extended(p_frame)) {
 		m_ack_data[DEST_ADDR_TYPE_OFFSET] |= DEST_ADDR_TYPE_EXTENDED;
-	} else if (nrf_802154_frame_parser_src_addr_is_short(p_frame)) {
+	} else if (native_posix_802154_frame_parser_src_addr_is_short(p_frame)) {
 		m_ack_data[DEST_ADDR_TYPE_OFFSET] |= DEST_ADDR_TYPE_SHORT;
 	} else {
 		m_ack_data[DEST_ADDR_TYPE_OFFSET] |= DEST_ADDR_TYPE_NONE;
@@ -103,7 +103,7 @@ static void fcf_frame_version_set(void)
 }
 
 static void frame_control_set(const uint8_t *p_frame, const uint8_t *p_ie_data,
-			      nrf_802154_frame_parser_mhr_data_t *p_ack_offsets)
+			      native_posix_802154_frame_parser_mhr_data_t *p_ack_offsets)
 {
 	bool parse_results;
 
@@ -118,7 +118,7 @@ static void frame_control_set(const uint8_t *p_frame, const uint8_t *p_ie_data,
 	fcf_src_addressing_mode_set(p_frame);
 
 	parse_results =
-		nrf_802154_frame_parser_mhr_parse(m_ack_data, p_ack_offsets);
+		native_posix_802154_frame_parser_mhr_parse(m_ack_data, p_ack_offsets);
 	assert(parse_results);
 	(void)parse_results;
 
@@ -130,8 +130,8 @@ static void frame_control_set(const uint8_t *p_frame, const uint8_t *p_ie_data,
  * @section Addressing fields functions
  *****************************************************************************/
 
-static void destination_set(const nrf_802154_frame_parser_mhr_data_t *p_frame,
-			    const nrf_802154_frame_parser_mhr_data_t *p_ack)
+static void destination_set(const native_posix_802154_frame_parser_mhr_data_t *p_frame,
+			    const native_posix_802154_frame_parser_mhr_data_t *p_ack)
 {
 	/* Fill the Ack destination PAN ID field. */
 	if (p_ack->p_dst_panid != NULL) {
@@ -142,7 +142,7 @@ static void destination_set(const nrf_802154_frame_parser_mhr_data_t *p_frame,
 		} else if (p_frame->p_dst_panid != NULL) {
 			p_dst_panid = p_frame->p_dst_panid;
 		} else {
-			p_dst_panid = nrf_802154_pib_pan_id_get();
+			p_dst_panid = native_posix_802154_pib_pan_id_get();
 		}
 
 		memcpy((uint8_t *)p_ack->p_dst_panid, p_dst_panid, PAN_ID_SIZE);
@@ -168,8 +168,8 @@ static void source_set(const uint8_t *p_frame)
  *****************************************************************************/
 
 static void
-security_control_set(const nrf_802154_frame_parser_mhr_data_t *p_frame,
-		     const nrf_802154_frame_parser_mhr_data_t *p_ack)
+security_control_set(const native_posix_802154_frame_parser_mhr_data_t *p_frame,
+		     const native_posix_802154_frame_parser_mhr_data_t *p_ack)
 {
 	assert(p_frame->p_sec_ctrl != NULL);
 
@@ -180,8 +180,8 @@ security_control_set(const nrf_802154_frame_parser_mhr_data_t *p_frame,
 }
 
 static void
-security_key_id_set(const nrf_802154_frame_parser_mhr_data_t *p_frame,
-		    const nrf_802154_frame_parser_mhr_data_t *p_ack,
+security_key_id_set(const native_posix_802154_frame_parser_mhr_data_t *p_frame,
+		    const native_posix_802154_frame_parser_mhr_data_t *p_ack,
 		    bool fc_suppresed, const uint8_t **p_sec_end)
 {
 	const uint8_t *p_frame_key_id;
@@ -243,8 +243,8 @@ security_key_id_set(const nrf_802154_frame_parser_mhr_data_t *p_frame,
 }
 
 static void
-security_header_set(const nrf_802154_frame_parser_mhr_data_t *p_frame,
-		    const nrf_802154_frame_parser_mhr_data_t *p_ack,
+security_header_set(const native_posix_802154_frame_parser_mhr_data_t *p_frame,
+		    const native_posix_802154_frame_parser_mhr_data_t *p_ack,
 		    const uint8_t **p_sec_end)
 {
 	bool fc_suppressed;
@@ -289,25 +289,25 @@ static void ie_header_set(const uint8_t *p_ie_data, uint8_t ie_data_len,
  * @section Public API implementation
  *****************************************************************************/
 
-void nrf_802154_enh_ack_generator_init(void)
+void native_posix_802154_enh_ack_generator_init(void)
 {
 	/* Intentionally empty. */
 }
 
-const uint8_t *nrf_802154_enh_ack_generator_create(const uint8_t *p_frame)
+const uint8_t *native_posix_802154_enh_ack_generator_create(const uint8_t *p_frame)
 {
-	nrf_802154_frame_parser_mhr_data_t frame_offsets;
-	nrf_802154_frame_parser_mhr_data_t ack_offsets;
+	native_posix_802154_frame_parser_mhr_data_t frame_offsets;
+	native_posix_802154_frame_parser_mhr_data_t ack_offsets;
 	const uint8_t *p_sec_end = NULL;
 	bool parse_result =
-		nrf_802154_frame_parser_mhr_parse(p_frame, &frame_offsets);
+		native_posix_802154_frame_parser_mhr_parse(p_frame, &frame_offsets);
 
 	if (!parse_result) {
 		return NULL;
 	}
 
 	uint8_t ie_data_len;
-	const uint8_t *p_ie_data = nrf_802154_ack_data_ie_get(
+	const uint8_t *p_ie_data = native_posix_802154_ack_data_ie_get(
 		frame_offsets.p_src_addr,
 		frame_offsets.src_addr_size == EXTENDED_ADDRESS_SIZE,
 		&ie_data_len);

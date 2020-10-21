@@ -41,26 +41,26 @@ static frame_version_t frame_version_is_2015_or_above(const uint8_t *p_frame)
 	}
 }
 
-void nrf_802154_ack_generator_init(void)
+void native_posix_802154_ack_generator_init(void)
 {
 	/** Both generators are initialized to enable sending both Imm-Acks and
      *  Enh-Acks.
      */
-	nrf_802154_imm_ack_generator_init();
-	nrf_802154_enh_ack_generator_init();
+	native_posix_802154_imm_ack_generator_init();
+	native_posix_802154_enh_ack_generator_init();
 }
 
-const uint8_t *nrf_802154_ack_generator_create(const uint8_t *p_frame)
+const uint8_t *native_posix_802154_ack_generator_create(const uint8_t *p_frame)
 {
 	/* This function should not be called if ACK is not requested. */
 	assert(p_frame[ACK_REQUEST_OFFSET] & ACK_REQUEST_BIT);
 
 	switch (frame_version_is_2015_or_above(p_frame)) {
 	case FRAME_VERSION_BELOW_2015:
-		return nrf_802154_imm_ack_generator_create(p_frame);
+		return native_posix_802154_imm_ack_generator_create(p_frame);
 
 	case FRAME_VERSION_2015_OR_ABOVE:
-		return nrf_802154_enh_ack_generator_create(p_frame);
+		return native_posix_802154_enh_ack_generator_create(p_frame);
 
 	default:
 		return NULL;
